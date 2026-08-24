@@ -12,3 +12,5 @@ supabase/.branches/
 
 # Зависимости (если появятся)
 node_modules/
+desktop.ini
+~$*
