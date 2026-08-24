@@ -1,0 +1,14 @@
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# Секреты и окружение
+.env
+*.local
+
+# Supabase CLI
+supabase/.temp/
+supabase/.branches/
+
+# Зависимости (если появятся)
+node_modules/
