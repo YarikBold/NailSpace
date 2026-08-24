@@ -100,6 +100,35 @@ Deno.serve(async (req) => {
     try {
       const update = await req.json();
 
+      // ---- Новая заявка с сайта ----
+      if (update.action === 'new_appointment') {
+        if (req.headers.get('x-notify-secret') !== NOTIFY_SECRET) {
+          return json({ error: 'Unauthorized' }, 401);
+        }
+        const text =
+          `💅 *НОВАЯ ЗАПИСЬ В NAILSPACE*\n\n` +
+          `👤 *Клиент:* ${update.clientName}\n` +
+          `📞 *Телефон:* ${update.phone}\n` +
+          `🔗 Контакт: ${update.contact || '—'}\n` +
+          `✨ *Услуга:* ${update.service}\n` +
+          `📅 *Время:* ${update.slotTime}\n` +
+          `💰 *Стоимость:* ${update.price} ₽\n` +
+          `📝 *Комментарий:* ${update.comment || '—'}`;
+
+        await tg('sendMessage', {
+          chat_id: MASTER_CHAT_ID,
+          text: text,
+          parse_mode: 'Markdown',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✅ Подтвердить', callback_data: `confirm_${update.appointmentId}` },
+              { text: '💰 Занести в кассу', callback_data: `cash_${update.appointmentId}` },
+            ]],
+          },
+        });
+        return json({ success: true, sent: true });
+      }
+
       // ---- Фото от мастера (когда функция ждёт фото) ----
       if (update.message?.photo) {
         const chatId = String(update.message.chat.id);
