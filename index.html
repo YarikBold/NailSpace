@@ -672,6 +672,65 @@
 
     // первичная загрузка окошек
     loadSlots();
+
+    /* ===== УВЕДОМЛЕНИЕ МАСТЕРУ ЧЕРЕЗ EDGE FUNCTION =====
+       Токен бота и CHAT_ID хранятся в секретах функции на сервере.
+       Фронт лишь сообщает «произошла запись» и передаёт настоящий id из БД */
+    async function sendTelegramNotification(a, slotTime) {
+        await fetch(EDGE_FUNCTION_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,   // обязательный JWT для functions
+                'x-notify-secret': NOTIFY_SECRET                  // защита от спама чужими запросами
+            },
+            body: JSON.stringify({
+                action: 'new_appointment',
+                appointmentId: a.id,          // настоящий id из таблицы appointments
+                clientName: a.client_name,
+                phone: a.phone,
+                service: a.service,
+                slotTime: slotTime,
+                price: a.price,
+                comment: a.comment || ''
+            })
+        });
+    }
+
+    /* ===== ОТПРАВКА ФОРМЫ: SUPABASE + TELEGRAM ===== */
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const originalText = submitBtn.textContent;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Отправляем…';
+
+        try {
+            // слот обязателен
+            const slotInput = document.querySelector('#slots-group input:checked');
+            if (!slotInput) {
+                showToast('Пожалуйста, выбери свободное окошко.');
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+                return;
+            }
+
+            const data = Object.fromEntries(new FormData(form).entries());
+
+            // 1. Атомарно занимаем слот (защита от двойной брони:
+            //    обновление пройдёт только если слот ещё 'available')
+            const { data: claimed, error: claimError } = await sb
+                .from('slots')
+                .update({ status: 'booked' })
+                .eq('id', slotInput.value)
+                .eq('status', 'available')
+                .select();
+
+            if (claimError || !claimed || claimed.length === 0) {
+                showToast('Увы, это окошко только что заняли — выбери другое.');
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+                loadSlots();
                 return;
             }
 
@@ -719,9 +778,6 @@
             submitBtn.disabled = false;
         }
     });
-
-    // первичная загрузка окошек
-    loadSlots();
 </script>
 
 </body>
