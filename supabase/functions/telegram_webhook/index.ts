@@ -1,6 +1,6 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-// Все значения берутся из секретов Edge Function (supabase secrets set ...)
+// Все значения — из секретов (supabase secrets set ...)
 const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!; // внедряется автоматически
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!; // внедряется автоматически
@@ -15,40 +15,81 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-notify-secret',
 };
 
-// Ожидание ввода суммы: chat_id -> appointment_id (хранится в БД)
+const PHOTO_CAPTIONS: Record<string, string> = {
+  before: '📷 Исходник ногтей клиента',
+  ref: '📸 Референс (как хочет сделать)',
+};
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const url = new URL(req.url);
 
-  // ================= НАПОМИНАНИЯ (крон каждые 30 мин) =================
+  // ================= КРОН (каждые 30 мин) =================
   if (req.method === 'GET' || url.searchParams.has('check_reminders')) {
     try {
-      const now = new Date();
-      const fromTime = new Date(now.getTime() + 50 * 60000).toISOString();
-      const toTime = new Date(now.getTime() + 70 * 60000).toISOString();
+      // --- 1. Утренний дайджест: полный список записей на сегодня (в 09:xx по МСК, один раз) ---
+      const mskHour = Number(new Date().toLocaleString('en-US', { timeZone: 'Europe/Moscow', hour: '2-digit', hour12: false }));
+      const mskMinute = Number(new Date().toLocaleString('en-US', { timeZone: 'Europe/Moscow', minute: '2-digit', hour12: false }));
+      const mskDay = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
 
-      const { data: upcoming, error } = await supabase
-        .from('appointments')
-        .select('id, client_name, phone, service, slots!inner ( slot_time )')
-        .eq('status', 'confirmed')
-        .eq('reminder_sent', false)
-        .gte('slots.slot_time', fromTime)
-        .lte('slots.slot_time', toTime);
+      if (mskHour === 9 && mskMinute < 30) {
+        const { data: already } = await supabase.from('bot_digest_log').select('day').eq('day', mskDay).maybeSingle();
+        if (!already) {
+          const fromIso = mskDay + 'T00:00:00+03:00';
+          const toIso = mskDay + 'T23:59:59+03:00';
+          const { data: list } = await supabase.from('appointments')
+            .select('id, client_name, phone, contact, service, status, slots!inner ( slot_time )')
+            .in('status', ['new', 'confirmed'])
+            .gte('slots.slot_time', fromIso)
+            .lte('slots.slot_time', toIso)
+            .order('slot_time', { foreignTable: 'slots', ascending: true });
 
-      if (error) return json({ error: error.message }, 500);
-
-      for (const app of upcoming || []) {
-        const t = new Date((app.slots as any).slot_time).toLocaleTimeString('ru-RU', {
-          hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
-        });
-        await tg('sendMessage', {
-          chat_id: MASTER_CHAT_ID,
-          text: `⏰ *НАПОМИНАНИЕ!* В ${t}:\n👤 ${app.client_name} | 📞 ${app.phone}\n✨ ${app.service}`,
-          parse_mode: 'Markdown',
-        });
-        await supabase.from('appointments').update({ reminder_sent: true }).eq('id', app.id);
+          let text = `☀️ Доброе утро! Записи на сегодня (${mskDay}):\n`;
+          if (!list || list.length === 0) {
+            text += '\n📭 Записей на сегодня нет.';
+          } else {
+            list.forEach((a: any, i: number) => {
+              const t = new Date(a.slots.slot_time).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+              text += `\n${i + 1}. ${t} — ${a.client_name} | ${a.phone}\n   ✨ ${a.service}`;
+            });
+            text += `\n\nВсего записей: ${list.length}\n📋 /journal — открыть карточки`;
+          }
+          await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: text });
+          await supabase.from('bot_digest_log').insert({ day: mskDay });
+        }
       }
-      return json({ success: true, reminders_sent: (upcoming || []).length });
+
+      // --- 2. Ближайшая запись в течение часа: полные данные + фото ---
+      const nowIso = new Date().toISOString();
+      const in60Iso = new Date(Date.now() + 60 * 60000).toISOString();
+      const { data: nearestList } = await supabase.from('appointments')
+        .select('id, client_name, phone, contact, service, comment, price, status, slots!inner ( slot_time )')
+        .in('status', ['new', 'confirmed'])
+        .eq('reminder_sent', false)
+        .gte('slots.slot_time', nowIso)
+        .lte('slots.slot_time', in60Iso)
+        .order('slot_time', { foreignTable: 'slots', ascending: true })
+        .limit(1);
+
+      const nearest = (nearestList || [])[0];
+      if (nearest) {
+        const t = new Date(nearest.slots.slot_time).toLocaleString('ru-RU', {
+          weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
+        });
+        const text =
+          `⏰ *ЧЕРЕЗ ЧАС ЗАПИСЬ!*\n\n` +
+          `📅 ${t}\n` +
+          `👤 ${nearest.client_name} | 📞 ${nearest.phone}\n` +
+          (nearest.contact ? `🔗 Контакт: ${nearest.contact}\n` : '') +
+          `✨ ${nearest.service}\n` +
+          `💰 ${nearest.price} ₽ · ${statusRu(nearest.status)}\n` +
+          `📝 ${nearest.comment || '—'}`;
+        await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: text, parse_mode: 'Markdown' });
+        await sendPhotos(MASTER_CHAT_ID, nearest.id);
+        await supabase.from('appointments').update({ reminder_sent: true }).eq('id', nearest.id);
+      }
+
+      return json({ success: true });
     } catch (err: any) {
       return json({ error: err.message }, 500);
     }
@@ -59,53 +100,48 @@ Deno.serve(async (req) => {
     try {
       const update = await req.json();
 
-      // ---- Новая заявка с сайта ----
-      if (update.action === 'new_appointment') {
-        if (req.headers.get('x-notify-secret') !== NOTIFY_SECRET) {
-          return json({ error: 'Unauthorized' }, 401);
-        }
-        const text =
-          `💅 *НОВАЯ ЗАПИСЬ В NAILSPACE*\n\n` +
-          `👤 *Клиент:* ${update.clientName}\n` +
-          `📞 *Телефон:* ${update.phone}\n` +
-          `✨ *Услуга:* ${update.service}\n` +
-          `📅 *Время:* ${update.slotTime}\n` +
-          `💰 *Стоимость:* ${update.price} ₽\n` +
-          `📝 *Комментарий:* ${update.comment || '—'}`;
+      // ---- Фото от мастера (когда функция ждёт фото) ----
+      if (update.message?.photo) {
+        const chatId = String(update.message.chat.id);
+        const { data: pend } = await supabase.from('bot_pending_photo')
+          .select('appointment_id, kind').eq('chat_id', chatId).maybeSingle();
 
-        await tg('sendMessage', {
-          chat_id: MASTER_CHAT_ID,
-          text,
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: '✅ Подтвердить', callback_data: `confirm_${update.appointmentId}` },
-              { text: '💰 Занести в кассу', callback_data: `cash_${update.appointmentId}` },
-            ]],
-          },
-        });
-        return json({ success: true, sent: true });
+        if (pend) {
+          const fileId = update.message.photo[update.message.photo.length - 1].file_id;
+          // заменяем фото этого типа, если оно уже было
+          await supabase.from('appointment_photos')
+            .delete().eq('appointment_id', pend.appointment_id).eq('kind', pend.kind);
+          await supabase.from('appointment_photos')
+            .insert({ appointment_id: pend.appointment_id, kind: pend.kind, file_id: fileId });
+          await supabase.from('bot_pending_photo').delete().eq('chat_id', chatId);
+
+          await tg('sendMessage', {
+            chat_id: chatId,
+            text: `✅ ${PHOTO_CAPTIONS[pend.kind]} — сохранено!\nОткрываю карточку записи…`,
+          });
+          await sendCardWithPhotos(chatId, pend.appointment_id);
+        }
+        return json({ success: true });
       }
 
-      // ---- Команды мастера (чужие чаты игнорируются) ----
+      // ---- Текст: команды, ввод суммы, отмена ожидания фото ----
       if (update.message?.text) {
         const chatId = String(update.message.chat.id);
         if (chatId !== String(MASTER_CHAT_ID)) return json({ success: true });
         const cmd = update.message.text.trim().toLowerCase().split('@')[0];
 
-        // Ввод итоговой суммы для занесения в кассу
-        const { data: pend } = await supabase
-          .from('bot_pending_cash')
+        // Ввод итоговой суммы для кассы
+        const { data: pendCash } = await supabase.from('bot_pending_cash')
           .select('appointment_id').eq('chat_id', chatId).maybeSingle();
 
-        if (pend?.appointment_id) {
+        if (pendCash?.appointment_id) {
           const numMatch = update.message.text.replace(',', '.').match(/\d+(?:\.\d{1,2})?/);
           if (!numMatch) {
             await tg('sendMessage', { chat_id: chatId, text: '⚠️ Пришли сумму числом, например: 750' });
             return json({ success: true });
           }
           const amountStr = numMatch[0];
-          const card = await buildCard(pend.appointment_id);
+          const card = await buildCard(pendCash.appointment_id);
           if (!card) {
             await supabase.from('bot_pending_cash').delete().eq('chat_id', chatId);
             return json({ success: true });
@@ -115,7 +151,7 @@ Deno.serve(async (req) => {
             text: `💰 *Подтверди занесение в кассу*\n\n${card.text}\n\n💵 К оплате: *${amountStr} ₽*`,
             parse_mode: 'Markdown',
             reply_markup: { inline_keyboard: [[
-              { text: `✅ Внести ${amountStr} ₽`, callback_data: `cashok_${pend.appointment_id}_${amountStr}` },
+              { text: `✅ Внести ${amountStr} ₽`, callback_data: `cashok_${pendCash.appointment_id}_${amountStr}` },
               { text: '❌ Отмена', callback_data: 'cashno' },
             ]] },
           });
@@ -125,7 +161,7 @@ Deno.serve(async (req) => {
         if (cmd === '/start' || cmd === '/help') {
           await tg('sendMessage', {
             chat_id: chatId,
-            text: '👋 Бот NailSpace\n\n📋 /journal — ближайшие записи\n📋 /journal_all — все заказы (ближайшие + завершённые)\n' +
+            text: '👋 Бот NailSpace\n\n📋 /journal — ближайшие записи\n📋 /journal_all — все заказы\n' +
                   '💰 /cashbox_day · /cashbox_week · /cashbox_month · /cashbox_all',
           });
           return json({ success: true });
@@ -172,6 +208,17 @@ Deno.serve(async (req) => {
           await tg('sendMessage', { chat_id: chatId, text: text, parse_mode: 'Markdown' });
           return json({ success: true });
         }
+
+        // Мастер в режиме «жду фото», но прислал текст (не команду)
+        const { data: pendPhoto } = await supabase.from('bot_pending_photo')
+          .select('kind').eq('chat_id', chatId).maybeSingle();
+        if (pendPhoto) {
+          await tg('sendMessage', {
+            chat_id: chatId,
+            text: `📷 Жду фото! Пришли снимок (или нажми «❌ Отмена» в сообщении с запросом).`,
+          });
+          return json({ success: true });
+        }
       }
 
       // ---- Кнопки ----
@@ -180,7 +227,7 @@ Deno.serve(async (req) => {
         const chatId = cb.message.chat.id;
         const messageId = cb.message.message_id;
 
-        // Навигация (без id в callback_data)
+        // Навигация
         if (cb.data === 'back_journal') {
           const j = await buildJournal();
           await editMessageText(chatId, messageId, j.text, j.keyboard);
@@ -202,23 +249,17 @@ Deno.serve(async (req) => {
           return json({ success: true });
         }
         if (cb.data === 'cashno') {
-          const { data: pend } = await supabase
-            .from('bot_pending_cash')
-            .select('appointment_id').eq('chat_id', String(chatId)).maybeSingle();
-          if (pend) {
-            await supabase.from('bot_pending_cash').delete().eq('chat_id', String(chatId));
-            const card = await buildCard(pend.appointment_id);
-            if (card) {
-              await editMessageText(chatId, messageId, card.text, card.keyboard);
-              await answerCallbackQuery(cb.id, 'Возврат к записи');
-              return json({ success: true });
-            }
-          }
+          await supabase.from('bot_pending_cash').delete().eq('chat_id', String(chatId));
+          await answerCallbackQuery(cb.id, 'Отменено');
+          return json({ success: true });
+        }
+        if (cb.data === 'photono') {
+          await supabase.from('bot_pending_photo').delete().eq('chat_id', String(chatId));
           await answerCallbackQuery(cb.id, 'Отменено');
           return json({ success: true });
         }
 
-        // Действия с записью
+        // Действия
         const parts = cb.data.split('_');
         const action = parts[0];
         const appointmentId = parts[1];
@@ -228,6 +269,7 @@ Deno.serve(async (req) => {
           const card = await buildCard(appointmentId);
           if (!card) return json({ success: true });
           await editMessageText(chatId, messageId, card.text, card.keyboard);
+          await sendPhotos(chatId, appointmentId);
           return json({ success: true });
         }
 
@@ -255,6 +297,31 @@ Deno.serve(async (req) => {
           await answerCallbackQuery(cb.id, `Внесено в кассу: ${amount} ₽ 💰`);
           const m = await buildAllMenu();
           await editMessageText(chatId, messageId, m.text, m.keyboard);
+          return json({ success: true });
+        }
+
+        // Запрос фото: исходник / референс
+        if (action === 'photo') {
+          const kind = parts[1] === 'ref' ? 'ref' : 'before';
+          await supabase.from('bot_pending_photo').upsert({
+            chat_id: String(chatId), appointment_id: appointmentId, kind: kind,
+          });
+          await tg('sendMessage', {
+            chat_id: chatId,
+            text: `📷 Пришли фото «${PHOTO_CAPTIONS[kind]}».\nЕсли фото этого типа уже есть — оно заменится.`,
+            reply_markup: { inline_keyboard: [[{ text: '❌ Отмена', callback_data: 'photono' }]] },
+          });
+          return json({ success: true });
+        }
+
+        // Удалить фото конкретного типа
+        if (action === 'delphoto') {
+          const kind = parts[2] === 'ref' ? 'ref' : 'before';
+          await supabase.from('appointment_photos')
+            .delete().eq('appointment_id', appointmentId).eq('kind', kind);
+          await answerCallbackQuery(cb.id, 'Фото удалено 🗑');
+          const card = await buildCard(appointmentId);
+          if (card) await editMessageText(chatId, messageId, card.text, card.keyboard);
           return json({ success: true });
         }
 
@@ -315,12 +382,17 @@ Deno.serve(async (req) => {
 const statusRu = (s: string) =>
   ({ new: '🆕 новая', confirmed: '✅ подтверждена', completed: '💰 в кассе', canceled: '❌ отменена' }[s] || s);
 
-// Карточка записи с кнопками по статусу
+// Карточка записи: контакт, статусы фото, кнопки управления
 async function buildCard(id: string) {
   const { data: a } = await supabase.from('appointments')
-    .select('id, client_name, phone, service, comment, price, status, slots!inner ( slot_time )')
+    .select('id, client_name, phone, contact, service, comment, price, status, slots!inner ( slot_time )')
     .eq('id', id).single();
   if (!a) return null;
+
+  const { data: photos } = await supabase.from('appointment_photos')
+    .select('kind').eq('appointment_id', id);
+  const hasBefore = (photos || []).some(p => p.kind === 'before');
+  const hasRef = (photos || []).some(p => p.kind === 'ref');
 
   const time = new Date(a.slots.slot_time).toLocaleString('ru-RU', {
     weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
@@ -330,29 +402,61 @@ async function buildCard(id: string) {
     `📋 *ЗАПИСЬ*\n` +
     `📅 ${time}\n` +
     `👤 ${a.client_name} | 📞 ${a.phone}\n` +
+    `🔗 Контакт: ${a.contact || '—'}\n` +
     `✨ ${a.service}\n` +
     `💰 Ориентир: ${a.price} ₽\n` +
     `📝 ${a.comment || '—'}\n` +
+    `📷 Фото «исходник»: ${hasBefore ? '✅ есть' : '❌ нет'}\n` +
+    `📸 Референс: ${hasRef ? '✅ есть' : '❌ нет'}\n` +
     `Статус: ${statusRu(a.status)}`;
 
   const keyboard: any[] = [];
   if (a.status === 'new') keyboard.push([{ text: '✅ Подтвердить', callback_data: `confirm_${id}` }]);
   if (a.status === 'new' || a.status === 'confirmed')
     keyboard.push([{ text: '💰 Занести в кассу', callback_data: `cash_${id}` }]);
+  keyboard.push([
+    { text: `📷 ${hasBefore ? 'Сменить' : 'Добавить'} исходник`, callback_data: `photo_before_${id}` },
+    { text: `📸 ${hasRef ? 'Сменить' : 'Добавить'} референс`, callback_data: `photo_ref_${id}` },
+  ]);
+  if (hasBefore || hasRef)
+    keyboard.push([{ text: '🗑 Удалить фото', callback_data: `delphoto_${id}` }]);
   if (a.status !== 'completed')
     keyboard.push([
       { text: '❌ Отменить', callback_data: `cancel_${id}` },
       { text: '🗑 Удалить', callback_data: `delete_${id}` },
     ]);
-  else
-    keyboard.push([{ text: '🗑 Удалить', callback_data: `delete_${id}` }]);
-
   keyboard.push([{
     text: a.status === 'completed' ? '⬅ К завершённым' : '⬅ К журналу',
     callback_data: a.status === 'completed' ? 'completed_list' : 'back_journal',
   }]);
 
   return { text, keyboard };
+}
+
+// Отправить сохранённые фото записи
+async function sendPhotos(chatId: string | number, id: string) {
+  const { data: photos } = await supabase.from('appointment_photos')
+    .select('kind, file_id').eq('appointment_id', id);
+  for (const p of photos || []) {
+    await tg('sendPhoto', {
+      chat_id: chatId,
+      photo: p.file_id,
+      caption: PHOTO_CAPTIONS[p.kind] || '',
+    });
+  }
+}
+
+// Карточка + фото одним сообщением (используется после добавления фото)
+async function sendCardWithPhotos(chatId: string | number, id: string) {
+  const card = await buildCard(id);
+  if (!card) return;
+  await tg('sendMessage', {
+    chat_id: chatId,
+    text: card.text,
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: card.keyboard },
+  });
+  await sendPhotos(chatId, id);
 }
 
 // Ближайшие записи (new + confirmed)
@@ -379,7 +483,7 @@ async function buildJournal() {
     `👤 ${nearest.client_name} | 📞 ${nearest.phone}\n` +
     `✨ ${nearest.service}\n` +
     `💰 ${nearest.price || '—'} ₽ · ${mark(nearest.status)} ${nearest.status === 'confirmed' ? 'подтверждена' : 'новая'}\n\n` +
-    `👇 Нажми на запись, чтобы открыть карточку`;
+    `👇 Нажми на запись, чтобы открыть карточку и фото`;
 
   const keyboard: any[] = [[
     { text: `🔍 ${fmt(nearest.slots.slot_time)} — ${nearest.client_name}`, callback_data: `view_${nearest.id}` },

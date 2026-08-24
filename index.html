@@ -311,6 +311,11 @@
                     <label for="comment">Комментарий</label>
                     <textarea id="comment" name="comment" rows="3" placeholder="Пожелания к дизайну, длина, необходимость снятия..."></textarea>
                 </div>
+                <!-- Контакт для связи: Telegram / VK / MAX (необязательно) -->
+                <div class="field">
+                    <label for="contact">Телеграм / VK / MAX (необязательно)</label>
+                    <input type="text" id="contact" name="contact" placeholder="@username или ссылка на профиль">
+                </div>
                 <button type="submit" class="btn btn--primary btn--full">Отправить заявку</button>
                 <p class="booking__note">Отправляя заявку, ты соглашаешься на обработку персональных данных</p>
             </form>
@@ -776,6 +781,7 @@
                     slot_id: slotInput.value,
                     client_name: data.name,
                     phone: data.phone,
+                    contact: data.contact || null,
                     service: data.service,
                     comment: data.comment || null,
                     price: Number(data.price) || 0,
