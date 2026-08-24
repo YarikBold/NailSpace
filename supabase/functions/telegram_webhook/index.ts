@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
           `💅 *НОВАЯ ЗАПИСЬ В NAILSPACE*\n\n` +
           `👤 *Клиент:* ${update.clientName}\n` +
           `📞 *Телефон:* ${update.phone}\n` +
-          `🔗 Контакт: ${update.contact || '—'}\n` +
+          `🔗 Контакт${update.contactType ? ` (${update.contactType})` : ''}: ${update.contact || '—'}\n` +
           `✨ *Услуга:* ${update.service}\n` +
           `📅 *Время:* ${update.slotTime}\n` +
           `💰 *Стоимость:* ${update.price} ₽\n` +

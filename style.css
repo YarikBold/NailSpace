@@ -833,6 +833,11 @@ ul {
 
 .month-chip:hover { border-color: var(--accent); }
 
+/* галочка на выбранной пилюле (выбор соцсети для контакта) */
+.pill-option--check input:checked + span::before {
+    content: '✓ ';
+}
+
 .month-chip.active {
     background: linear-gradient(135deg, var(--accent-light), var(--accent));
     border-color: transparent;

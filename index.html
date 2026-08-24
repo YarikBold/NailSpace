@@ -311,10 +311,24 @@
                     <label for="comment">Комментарий</label>
                     <textarea id="comment" name="comment" rows="3" placeholder="Пожелания к дизайну, длина, необходимость снятия..."></textarea>
                 </div>
-                <!-- Контакт для связи: Telegram / VK / MAX (необязательно) -->
+                <!-- Контакт для связи: выбор соцсети + юзер/ссылка (необязательно) -->
                 <div class="field">
-                    <label for="contact">Телеграм / VK / MAX (необязательно)</label>
-                    <input type="text" id="contact" name="contact" placeholder="@username или ссылка на профиль">
+                    <label>Куда ответить? (необязательно)</label>
+                    <div class="pill-group" id="contact-type-group">
+                        <label class="pill-option pill-option--check">
+                            <input type="radio" name="contact-type" value="Телеграм" checked>
+                            <span>Телеграм</span>
+                        </label>
+                        <label class="pill-option pill-option--check">
+                            <input type="radio" name="contact-type" value="VK">
+                            <span>VK</span>
+                        </label>
+                        <label class="pill-option pill-option--check">
+                            <input type="radio" name="contact-type" value="MAX">
+                            <span>MAX</span>
+                        </label>
+                    </div>
+                    <input type="text" id="contact" name="contact" placeholder="@username">
                 </div>
                 <button type="submit" class="btn btn--primary btn--full">Отправить заявку</button>
                 <p class="booking__note">Отправляя заявку, ты соглашаешься на обработку персональных данных</p>
@@ -420,6 +434,12 @@
 
     // дизайны независимы: можно выбрать один или оба сразу
     extraInputs.forEach(input => input.addEventListener('change', updateService));
+
+    // подсказка в поле контакта зависит от выбранной соцсети
+    const contactInput = document.getElementById('contact');
+    const CONTACT_HINTS = { 'Телеграм': '@username', 'VK': 'ссылка на профиль VK', 'MAX': 'ссылка на профиль MAX' };
+    document.querySelectorAll('#contact-type-group input').forEach(r =>
+        r.addEventListener('change', () => { contactInput.placeholder = CONTACT_HINTS[r.value] || ''; }));
 
     // базовая услуга просто обновляет итог
     baseInputs.forEach(input => input.addEventListener('change', updateService));
@@ -716,7 +736,7 @@
     /* ===== УВЕДОМЛЕНИЕ МАСТЕРУ ЧЕРЕЗ EDGE FUNCTION =====
        Токен бота и CHAT_ID хранятся в секретах функции на сервере.
        Фронт лишь сообщает «произошла запись» и передаёт настоящий id из БД */
-    async function sendTelegramNotification(a, slotTime) {
+    async function sendTelegramNotification(a, slotTime, contact) {
         await fetch(EDGE_FUNCTION_URL, {
             method: 'POST',
             headers: {
@@ -729,6 +749,8 @@
                 appointmentId: a.id,          // настоящий id из таблицы appointments
                 clientName: a.client_name,
                 phone: a.phone,
+                contact: (contact && contact.value) || a.contact || '',
+                contactType: (contact && contact.type) || '',
                 service: a.service,
                 slotTime: slotTime,
                 price: a.price,
@@ -756,6 +778,14 @@
             }
 
             const data = Object.fromEntries(new FormData(form).entries());
+
+            // контакт: сохраняем с указанием соцсети и передаём тип в Telegram
+            const contactTypeEl = document.querySelector('#contact-type-group input:checked');
+            const contactType = contactTypeEl ? contactTypeEl.value : '';
+            const contactRaw = data.contact || '';
+            if (contactRaw && contactType) {
+                data.contact = contactType + ' — ' + contactRaw;
+            }
 
             // 1. Атомарно занимаем слот (защита от двойной брони:
             //    обновление пройдёт только если слот ещё 'available')
@@ -798,7 +828,10 @@
 
             // 3. Уведомление мастеру (сбой отправки НЕ отменяет уже созданную запись)
             try {
-                await sendTelegramNotification(appointment, slotInput.dataset.time);
+                await sendTelegramNotification(appointment, slotInput.dataset.time, {
+                    value: contactRaw,
+                    type: contactType,
+                });
             } catch (notifyError) {
                 console.error('Telegram-уведомление не доставлено:', notifyError);
             }
