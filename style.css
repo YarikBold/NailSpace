@@ -910,6 +910,15 @@ ul {
     border-color: rgba(184, 146, 255, 0.35);
 }
 
+/* дни соседних месяцев: кликабельны, чуть приглушены */
+.day-cell.adjacent {
+    opacity: 0.55;
+}
+
+.day-cell.adjacent:hover:not(:disabled) {
+    opacity: 1;
+}
+
 .day-name {
     font-size: 10px;
     font-weight: 700;

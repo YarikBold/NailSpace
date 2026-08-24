@@ -285,7 +285,7 @@
                             <span>Дизайн Средний · 300 ₽</span>
                         </label>
                     </div>
-                    <small class="field-hint">Дизайны взаимоисключающие — можно выбрать только один</small>
+                    <small class="field-hint">Можно выбрать один или оба дизайна сразу</small>
 
                     <!-- Итог уходит в Supabase скрытым инпутом name="service" -->
                     <input type="hidden" name="service" id="service-result">
@@ -413,15 +413,8 @@
     const baseInputs = document.querySelectorAll('#service-group input');
     const extraInputs = document.querySelectorAll('#extras-group input');
 
-    // дизайны взаимоисключающие: выбор одного снимает второй
-    extraInputs.forEach(input => input.addEventListener('change', () => {
-        if (input.checked) {
-            extraInputs.forEach(other => {
-                if (other !== input) other.checked = false;
-            });
-        }
-        updateService();
-    }));
+    // дизайны независимы: можно выбрать один или оба сразу
+    extraInputs.forEach(input => input.addEventListener('change', updateService));
 
     // базовая услуга просто обновляет итог
     baseInputs.forEach(input => input.addEventListener('change', updateService));
@@ -562,20 +555,54 @@
         });
     }
 
-    // открыть месяц: выбрать первый день со свободными окошками
+    // открыть месяц: неделя открывается от текущей (для этого месяца)
     function openMonth(m) {
         currentMonth = m;
-        slotsMonths.querySelectorAll('.month-chip').forEach(b =>
-            b.classList.toggle('active', b.dataset.month === m));
-        weekIndex = 0;
-
+        renderMonths();
         const [y, mo] = m.split('-').map(Number);
+        const todayKey = dayKey(new Date());
+        const firstDow = (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7; // пн = 0
+
+        if (m === todayKey.slice(0, 7)) {
+            // текущий месяц — открываем неделю, в которой находится сегодня
+            const todayNum = Number(todayKey.slice(8, 10));
+            weekIndex = Math.floor((firstDow + todayNum - 1) / 7);
+        } else {
+            weekIndex = 0;
+        }
+
         const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
         selectedDay = null;
         for (let d = 1; d <= daysInMonth; d++) {
             const key = isoDay(y, mo, d);
             if (allSlots.some(s => s.key === key)) { selectedDay = key; break; }
         }
+        renderWeek();
+        renderTimes();
+    }
+
+    // показать конкретный день (в т.ч. из соседнего месяца — с автопереключением)
+    function showDay(m, key) {
+        currentMonth = m;
+        renderMonths();
+        const [y, mo] = m.split('-').map(Number);
+        const firstDow = (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7;
+        weekIndex = Math.floor((firstDow + Number(key.slice(8, 10)) - 1) / 7);
+        selectedDay = key;
+        renderWeek();
+        renderTimes();
+    }
+
+    // сдвиг на соседний месяц (стрелки на границах месяца)
+    function shiftMonth(dir, toLast) {
+        const [y, mo] = currentMonth.split('-').map(Number);
+        const d = new Date(Date.UTC(y, mo - 1 + dir, 1));
+        currentMonth = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0');
+        const firstDow = (new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).getUTCDay() + 6) % 7;
+        const daysInMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+        const totalWeeks = Math.ceil((firstDow + daysInMonth) / 7);
+        weekIndex = toLast ? totalWeeks - 1 : 0;
+        renderMonths();
         renderWeek();
         renderTimes();
     }
@@ -593,15 +620,19 @@
         prev.type = 'button';
         prev.className = 'week-arrow';
         prev.textContent = '‹';
-        prev.disabled = weekIndex === 0;
-        prev.addEventListener('click', () => { weekIndex--; renderWeek(); renderTimes(); });
+        prev.addEventListener('click', () => {
+            if (weekIndex === 0) shiftMonth(-1, true);   // уходим в прошлый месяц, к его последней неделе
+            else { weekIndex--; renderWeek(); renderTimes(); }
+        });
 
         const next = document.createElement('button');
         next.type = 'button';
         next.className = 'week-arrow';
         next.textContent = '›';
-        next.disabled = weekIndex >= totalWeeks - 1;
-        next.addEventListener('click', () => { weekIndex++; renderWeek(); renderTimes(); });
+        next.addEventListener('click', () => {
+            if (weekIndex >= totalWeeks - 1) shiftMonth(1, false); // в следующий месяц, к его первой неделе
+            else { weekIndex++; renderWeek(); renderTimes(); }
+        });
 
         slotsWeek.appendChild(prev);
 
@@ -612,27 +643,31 @@
             cell.type = 'button';
             cell.className = 'day-cell';
 
-            if (d < 1 || d > daysInMonth) {           // дни соседних месяцев — приглушены
-                cell.classList.add('empty');
-                cell.disabled = true;
-                slotsWeek.appendChild(cell);
-                continue;
-            }
+            // нормализуем дату — захватываем дни соседних месяцев
+            const cellDate = new Date(Date.UTC(y, mo - 1, d, 12));
+            const cellKey = cellDate.getUTCFullYear() + '-' +
+                String(cellDate.getUTCMonth() + 1).padStart(2, '0') + '-' +
+                String(cellDate.getUTCDate()).padStart(2, '0');
+            const inSelectedMonth = cellDate.getUTCMonth() === mo - 1;
 
-            const key = isoDay(y, mo, d);
-            const hasSlots = allSlots.some(s => s.key === key);
+            const hasSlots = allSlots.some(s => s.key === cellKey);
             if (!hasSlots) { cell.classList.add('empty'); cell.disabled = true; }
-            if (key === selectedDay) cell.classList.add('selected');
+            if (!inSelectedMonth) cell.classList.add('adjacent');
+            if (cellKey === selectedDay) cell.classList.add('selected');
 
             cell.innerHTML =
                 '<span class="day-name">' + DAY_SHORT[i] + '</span>' +
-                '<span class="day-num">' + d + '</span>';
+                '<span class="day-num">' + cellDate.getUTCDate() + '</span>';
 
             if (hasSlots) {
                 cell.addEventListener('click', () => {
-                    selectedDay = key;
-                    renderWeek();
-                    renderTimes();
+                    if (inSelectedMonth) {
+                        selectedDay = cellKey;
+                        renderWeek();
+                        renderTimes();
+                    } else {
+                        showDay(cellKey.slice(0, 7), cellKey);   // авто-переключение месяца
+                    }
                 });
             }
             slotsWeek.appendChild(cell);
