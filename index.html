@@ -295,11 +295,15 @@
                     <div class="price-estimate" id="price-estimate" hidden></div>
                 </div>
 
-                <!-- Свободные окошки из Supabase (обязательный выбор) -->
+                <!-- Свободные окошки из Supabase: месяц → неделя → день (обязательный выбор) -->
                 <div class="field">
                     <label>Свободное окошко</label>
-                    <div id="slots-group" class="slots-group" role="radiogroup" aria-label="Свободные окошки">
-                        <p class="slots-loading">Загружаю свободные окошки…</p>
+                    <div id="slots-group" class="slots-group" role="radiogroup" aria-label="Выбор даты и времени">
+                        <div id="slots-months" class="slots-months"></div>
+                        <div id="slots-week" class="slots-week"></div>
+                        <div id="slots-times" class="slots-times">
+                            <p class="slots-loading">Загружаю свободные окошки…</p>
+                        </div>
                     </div>
                 </div>
                 <!-- НОВОЕ ПОЛЕ: комментарий (3 строки, ресайз по вертикали) -->
@@ -478,6 +482,9 @@
     const submitBtn = form.querySelector('button[type="submit"]');
     const toast = document.getElementById('toast');
     const slotsGroup = document.getElementById('slots-group');
+    const slotsMonths = document.getElementById('slots-months');
+    const slotsWeek = document.getElementById('slots-week');
+    const slotsTimes = document.getElementById('slots-times');
     let toastTimer;
 
     function showToast(message) {
@@ -487,113 +494,184 @@
         toastTimer = setTimeout(() => toast.classList.remove('toast--visible'), 5000);
     }
 
-    /* ===== ЗАГРУЗКА СВОБОДНЫХ ОКОШЕК ИЗ SUPABASE ===== */
+    /* ===== ВЫБОР ОКОШЕК: месяц → неделя → день ===== */
+    const MONTH_NAMES = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+                         'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+    const DAY_SHORT = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+    let allSlots = [];        // [{ id, date, key, month }]
+    let availableMonths = []; // ['YYYY-MM', ...] — месяцы, где есть слоты
+    let currentMonth = null;
+    let weekIndex = 0;        // неделя внутри месяца (0 — первая)
+    let selectedDay = null;   // 'YYYY-MM-DD'
+
+    // ключ дня 'YYYY-MM-DD' в локальном времени устройства
+    const dayKey = d => d.toLocaleDateString('en-CA');
+    const isoDay = (y, m, d) => y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+
     async function loadSlots() {
-        slotsGroup.innerHTML = '<p class="slots-loading">Загружаю свободные окошки…</p>';
+        slotsMonths.innerHTML = '';
+        slotsWeek.innerHTML = '';
+        slotsTimes.innerHTML = '<p class="slots-loading">Загружаю свободные окошки…</p>';
+        selectedDay = null;
 
         const { data: slots, error } = await sb
             .from('slots')
             .select('id, slot_time')
-            .eq('status', 'available')                          // только свободные
-            .gte('slot_time', new Date().toISOString())         // только будущие
+            .eq('status', 'available')
+            .gte('slot_time', new Date().toISOString())
             .order('slot_time', { ascending: true });
 
         if (error) {
-            slotsGroup.innerHTML = '<p class="slots-loading">Не удалось загрузить окошки. Попробуй обновить страницу.</p>';
-            return;
-        }
-        if (!slots.length) {
-            slotsGroup.innerHTML = '<p class="slots-loading">Свободных окошек нет — напиши мастеру в соцсетях.</p>';
+            slotsTimes.innerHTML = '<p class="slots-loading">Не удалось загрузить окошки. Попробуй обновить страницу.</p>';
             return;
         }
 
-        // группируем слоты по дням
-        const byDay = {};
-        slots.forEach(s => {
+        allSlots = (slots || []).map(s => {
             const d = new Date(s.slot_time);
-            const day = d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
-            const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-            (byDay[day] = byDay[day] || []).push({ id: s.id, time });
+            const key = dayKey(d);
+            return { id: s.id, date: d, key, month: key.slice(0, 7) };
         });
 
-        slotsGroup.innerHTML = '';
-        Object.entries(byDay).forEach(([day, times]) => {
-            const title = document.createElement('p');
-            title.className = 'slots-day__title';
-            title.textContent = day;
+        if (!allSlots.length) {
+            slotsTimes.innerHTML = '<p class="slots-loading">Свободных окошек нет — напиши мастеру в соцсетях.</p>';
+            return;
+        }
 
-            const row = document.createElement('div');
-            row.className = 'slots-day';
-            times.forEach(t => {
-                const label = document.createElement('label');
-                label.className = 'pill-option';
-                label.innerHTML =
-                    '<input type="radio" name="slot" value="' + t.id + '" data-time="' + day + ', ' + t.time + '">' +
-                    '<span>' + t.time + '</span>';
-                row.appendChild(label);
+        // месяцы, в которых есть свободные окошки
+        availableMonths = [...new Set(allSlots.map(s => s.month))].sort();
+        renderMonths();
+        openMonth(availableMonths[0]);
+    }
+
+    function renderMonths() {
+        slotsMonths.innerHTML = '';
+        availableMonths.forEach(m => {
+            const [y, mo] = m.split('-');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'month-chip' + (m === currentMonth ? ' active' : '');
+            btn.dataset.month = m;
+            btn.textContent = MONTH_NAMES[Number(mo) - 1] + ' ' + y;
+            btn.addEventListener('click', () => {
+                currentMonth = m;
+                renderMonths();
+                openMonth(m);
             });
-            slotsGroup.append(title, row);
+            slotsMonths.appendChild(btn);
         });
     }
 
-    /* ===== УВЕДОМЛЕНИЕ МАСТЕРУ ЧЕРЕЗ EDGE FUNCTION =====
-       Токен бота и CHAT_ID хранятся в секретах функции на сервере.
-       Фронт лишь сообщает «произошла запись» и передаёт настоящий id из БД */
-    async function sendTelegramNotification(a, slotTime) {
-        await fetch(EDGE_FUNCTION_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,   // обязательный JWT для functions
-                'x-notify-secret': NOTIFY_SECRET                  // защита от спама чужими запросами
-            },
-            body: JSON.stringify({
-                action: 'new_appointment',
-                appointmentId: a.id,          // настоящий id из таблицы appointments
-                clientName: a.client_name,
-                phone: a.phone,
-                service: a.service,
-                slotTime: slotTime,
-                price: a.price,
-                comment: a.comment || ''
-            })
-        });
+    // открыть месяц: выбрать первый день со свободными окошками
+    function openMonth(m) {
+        currentMonth = m;
+        slotsMonths.querySelectorAll('.month-chip').forEach(b =>
+            b.classList.toggle('active', b.dataset.month === m));
+        weekIndex = 0;
+
+        const [y, mo] = m.split('-').map(Number);
+        const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+        selectedDay = null;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const key = isoDay(y, mo, d);
+            if (allSlots.some(s => s.key === key)) { selectedDay = key; break; }
+        }
+        renderWeek();
+        renderTimes();
     }
 
-    /* ===== ОТПРАВКА ФОРМЫ: SUPABASE + TELEGRAM ===== */
-    form.addEventListener('submit', async (e) => {
-        e.preventDefault();
+    // полоса дней недели: пн–вс выбранной недели месяца
+    function renderWeek() {
+        const [y, mo] = currentMonth.split('-').map(Number);
+        const firstDow = (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7; // пн = 0
+        const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+        const totalWeeks = Math.ceil((firstDow + daysInMonth) / 7);
 
-        const originalText = submitBtn.textContent;
-        submitBtn.disabled = true;
-        submitBtn.textContent = 'Отправляем…';
+        slotsWeek.innerHTML = '';
 
-        try {
-            // слот обязателен
-            const slotInput = document.querySelector('#slots-group input:checked');
-            if (!slotInput) {
-                showToast('Пожалуйста, выбери свободное окошко.');
-                submitBtn.textContent = originalText;
-                submitBtn.disabled = false;
-                return;
+        const prev = document.createElement('button');
+        prev.type = 'button';
+        prev.className = 'week-arrow';
+        prev.textContent = '‹';
+        prev.disabled = weekIndex === 0;
+        prev.addEventListener('click', () => { weekIndex--; renderWeek(); renderTimes(); });
+
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.className = 'week-arrow';
+        next.textContent = '›';
+        next.disabled = weekIndex >= totalWeeks - 1;
+        next.addEventListener('click', () => { weekIndex++; renderWeek(); renderTimes(); });
+
+        slotsWeek.appendChild(prev);
+
+        const startDay = 1 + weekIndex * 7 - firstDow;
+        for (let i = 0; i < 7; i++) {
+            const d = startDay + i;
+            const cell = document.createElement('button');
+            cell.type = 'button';
+            cell.className = 'day-cell';
+
+            if (d < 1 || d > daysInMonth) {           // дни соседних месяцев — приглушены
+                cell.classList.add('empty');
+                cell.disabled = true;
+                slotsWeek.appendChild(cell);
+                continue;
             }
 
-            const data = Object.fromEntries(new FormData(form).entries());
+            const key = isoDay(y, mo, d);
+            const hasSlots = allSlots.some(s => s.key === key);
+            if (!hasSlots) { cell.classList.add('empty'); cell.disabled = true; }
+            if (key === selectedDay) cell.classList.add('selected');
 
-            // 1. Атомарно занимаем слот (защита от двойной брони:
-            //    обновление пройдёт только если слот ещё 'available')
-            const { data: claimed, error: claimError } = await sb
-                .from('slots')
-                .update({ status: 'booked' })
-                .eq('id', slotInput.value)
-                .eq('status', 'available')
-                .select();
+            cell.innerHTML =
+                '<span class="day-name">' + DAY_SHORT[i] + '</span>' +
+                '<span class="day-num">' + d + '</span>';
 
-            if (claimError || !claimed || claimed.length === 0) {
-                showToast('Увы, это окошко только что заняли — выбери другое.');
-                submitBtn.textContent = originalText;
-                submitBtn.disabled = false;
-                loadSlots();
+            if (hasSlots) {
+                cell.addEventListener('click', () => {
+                    selectedDay = key;
+                    renderWeek();
+                    renderTimes();
+                });
+            }
+            slotsWeek.appendChild(cell);
+        }
+
+        slotsWeek.appendChild(next);
+    }
+
+    // окошки выбранного дня
+    function renderTimes() {
+        slotsTimes.innerHTML = '';
+        const daySlots = allSlots.filter(s => s.key === selectedDay);
+
+        if (!selectedDay || !daySlots.length) {
+            slotsTimes.innerHTML = '<p class="slots-loading">На этот день свободных окошек нет</p>';
+            return;
+        }
+
+        const dayRu = new Date(selectedDay + 'T12:00:00').toLocaleDateString('ru-RU',
+            { weekday: 'long', day: 'numeric', month: 'long' });
+
+        const title = document.createElement('p');
+        title.className = 'slots-day__title';
+        title.textContent = dayRu;
+        slotsTimes.appendChild(title);
+
+        daySlots.forEach(s => {
+            const time = s.date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            const label = document.createElement('label');
+            label.className = 'pill-option';
+            label.innerHTML =
+                '<input type="radio" name="slot" value="' + s.id + '" data-time="' + dayRu + ', ' + time + '">' +
+                '<span>' + time + '</span>';
+            slotsTimes.appendChild(label);
+        });
+    }
+
+    // первичная загрузка окошек
+    loadSlots();
                 return;
             }
 
