@@ -190,9 +190,11 @@ const app = {
                         <div class="service-duration">${s.duration_hours} ч</div>
                     </div>
                     <button class="btn-pill" data-id="${s.id}" onclick="app.selectService('${s.id}'); event.stopPropagation();">
-                        <div class="btn-pill-wrapper">
-                            <span>Выбрать</span>
-                            <span>Выбрано</span>
+                        <div class="btn-pill-viewport">
+                            <div class="btn-pill-wrapper">
+                                <span>Выбрать</span>
+                                <span>Выбрано</span>
+                            </div>
                         </div>
                     </button>
                 </div>

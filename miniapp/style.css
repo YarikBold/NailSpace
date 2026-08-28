@@ -234,17 +234,24 @@ h1, h2, h3 {
     color: var(--text-main);
     border: none;
     border-radius: var(--radius-pill);
-    padding: 0 20px;
+    padding: 8px 20px;
     font-family: var(--font-body);
     font-weight: 600;
     font-size: 14px;
     cursor: pointer;
-    overflow: hidden;
     position: relative;
     display: inline-flex;
-    flex-direction: column;
-    height: 36px;
+    align-items: center;
+    justify-content: center;
     box-sizing: border-box;
+    transition: background 0.3s, box-shadow 0.3s;
+}
+.btn-pill-viewport {
+    height: 18px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
 }
 .btn-pill-wrapper {
     display: flex;
@@ -256,7 +263,8 @@ h1, h2, h3 {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 36px;
+    height: 18px;
+    line-height: 18px;
 }
 .btn-pill.selected {
     background: linear-gradient(135deg, #d896ff 0%, #a45aff 100%);
@@ -264,7 +272,7 @@ h1, h2, h3 {
     box-shadow: 0 4px 10px rgba(164, 90, 255, 0.3);
 }
 .btn-pill.selected .btn-pill-wrapper {
-    transform: translateY(-36px);
+    transform: translateY(-18px);
 }
 .btn-contact {
     display: flex;
