@@ -146,6 +146,37 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ================= НАСТРОЙКА КОМАНД БОТА =================
+  if (req.method === 'GET' && url.searchParams.has('setup_commands')) {
+    try {
+      // Для всех пользователей (клиентов) — пустой список команд (меню не отображается)
+      await tg('setMyCommands', {
+        commands: [],
+        scope: { type: 'default' }
+      });
+
+      // Для мастера — полный набор команд
+      await tg('setMyCommands', {
+        commands: [
+          { command: 'start', description: 'Перезапустить бот' },
+          { command: 'journal', description: 'Ближайшие записи' },
+          { command: 'journal_all', description: 'Все заказы (ближайшие + завершённые)' },
+          { command: 'slots', description: 'Управление окошками' },
+          { command: 'slots_week', description: 'Добавить окошки на неделю' },
+          { command: 'cashbox_day', description: 'Касса за день' },
+          { command: 'cashbox_week', description: 'Касса за неделю' },
+          { command: 'cashbox_month', description: 'Касса за месяц' },
+          { command: 'cashbox_all', description: 'Касса за всё время' },
+        ],
+        scope: { type: 'chat', chat_id: Number(MASTER_CHAT_ID) }
+      });
+
+      return json({ success: true, message: 'Commands configured: empty for clients, full for master' });
+    } catch (err: any) {
+      return json({ error: err.message }, 500);
+    }
+  }
+
   // ================= DEBUG WEBHOOK =================
   if (req.method === 'GET' && url.searchParams.has('check_webhook')) {
     try {
@@ -280,12 +311,12 @@ Deno.serve(async (req) => {
              } else {
                const { data: pastApps } = await supabase.from('appointments').select('id').eq('chat_id', chatId).limit(1);
                const hasPast = pastApps && pastApps.length > 0;
-               const kb = [
-                 [{ text: '📅 Записаться', callback_data: 'cbook_start' }],
+               const kb: any[] = [
+                 [{ text: '📅 Записаться', web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/' } }],
                  [{ text: '📋 Мои записи', callback_data: 'cbook_my' }]
                ];
                if (hasPast) {
-                 kb.push([{ text: '🔄 Повторная запись', callback_data: 'cbook_repeat' }]);
+                 kb.push([{ text: '🔄 Повторная запись', web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/' } }]);
                }
                await tg('sendMessage', {
                  chat_id: chatId,

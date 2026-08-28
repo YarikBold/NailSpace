@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NailSpace Booking</title>
+    
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <!-- Supabase SDK (UMD) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;1,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app" class="app-container">
+        <!-- Экран 1: Профиль и Услуги -->
+        <section id="screen-services" class="screen active">
+            <header class="master-header">
+                <img src="../logo.png" alt="NailSpace Logo" class="master-logo">
+                <h1 class="master-name">nail space</h1>
+                
+                <div class="master-socials">
+                    <a href="https://t.me/n_s_les" target="_blank" class="social-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </a>
+                    <a href="tel:+79990000000" class="social-btn" id="phoneBtn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M22 16.92V21A2 2 0 0 1 19.91 23C15.7 22.5 11.77 20.67 8.5 17.81C5.46 15.11 3.2 11.45 2.15 7.37A2 2 0 0 1 4.12 5H8.28A2 2 0 0 1 10.22 6.72L10.9 9.87A2 2 0 0 1 10.33 12L8.21 14.12C9.64 16.63 11.63 18.63 14.15 20L16.27 17.88A2 2 0 0 1 18.42 17.31L21.57 17.98A2 2 0 0 1 22 16.92Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </a>
+                </div>
+                
+                <div class="master-rating" id="masterRating">
+                    <span class="rating-star">★</span>
+                    <span class="rating-val">5.0</span>
+                    <span class="rating-count">1 оценка</span>
+                </div>
+                
+                <p class="master-desc">
+                    Всем привет, я начинающий мастер маникюра, принимаю на дому, готова вам доставить комфортную атмосферу и красивые новые ноготочки
+                </p>
+            </header>
+            
+            <div class="portfolio-carousel" id="portfolioGallery">
+                <!-- Фото -->
+            </div>
+            
+            <div class="services-container">
+                <div class="services-header">
+                    <h2>Маникюр</h2>
+                    <div class="services-count"><span id="servicesCount">3</span></div>
+                </div>
+                <div class="services-list" id="servicesList">
+                    <!-- Услуги -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Экран 2: Календарь и Слоты -->
+        <section id="screen-calendar" class="screen">
+            <div class="screen-header">
+                <button class="back-btn" onclick="app.showScreen('services')">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <h2>Дата и время</h2>
+            </div>
+            
+            <div class="calendar-container">
+                <div class="calendar-header">
+                    <div class="calendar-month-year" id="calendarMonthYear">Август 2026</div>
+                    <div class="calendar-nav">
+                        <button id="prevMonth">&lt;</button>
+                        <button id="nextMonth">&gt;</button>
+                    </div>
+                </div>
+                <div class="calendar-weekdays">
+                    <span>пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span>сб</span><span>вс</span>
+                </div>
+                <div class="calendar-grid" id="calendarGrid"></div>
+            </div>
+            
+            <div class="slots-container" id="slotsContainer">
+                <h3>ДЕНЬ</h3>
+                <div class="slots-grid" id="slotsGrid"></div>
+                <div class="no-slots-msg" id="noSlotsMsg" style="display: none;">
+                    <p>Все окошки разобрали. Зайдите позже.</p>
+                    <button class="btn-secondary" onclick="Telegram.WebApp.openTelegramLink('https://t.me/n_s_les')">Написать мастеру</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Экран 3: Фото -->
+        <section id="screen-details" class="screen">
+            <div class="screen-header">
+                <button class="back-btn" onclick="app.showScreen('calendar')">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <h2>Детали записи</h2>
+            </div>
+            
+            <div class="details-section">
+                <label>Для мастера</label>
+                <textarea id="bookingComment" placeholder="Например: хочу аккуратный градиент, без резких линий"></textarea>
+            </div>
+            
+            <div class="details-section">
+                <div class="photos-header">
+                    <label>Фото для мастера (референсы, мудборды)</label>
+                    <span class="photos-limit">до 3</span>
+                </div>
+                <div class="photos-grid" id="photosGrid">
+                    <label class="photo-upload-btn">
+                        <input type="file" accept="image/*" id="photoInput" multiple>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12h14"/></svg>
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <!-- Липкий Footer для бронирования -->
+        <div class="sticky-footer" id="stickyFooter" style="display:none;">
+            <div class="footer-info">
+                <div class="footer-total">итого</div>
+                <div class="footer-price-dur">
+                    <span class="price" id="footerPrice">0 ₽</span>
+                    <span class="duration" id="footerDuration">0 ч</span>
+                </div>
+            </div>
+            <button class="btn-primary footer-btn" id="footerActionBtn">
+                Продолжить →
+            </button>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
