@@ -997,9 +997,14 @@ Deno.serve(async (req) => {
 
         if (action === 'cancel') {
           const { data: app } = await supabase.from('appointments')
-            .select('slot_id').eq('id', appointmentId).single();
+            .select('slot_id, chat_id').eq('id', appointmentId).single();
           await supabase.from('appointments').update({ status: 'canceled' }).eq('id', appointmentId);
           if (app?.slot_id) await supabase.from('slots').update({ status: 'available' }).eq('id', app.slot_id);
+          
+          if (app?.chat_id) {
+             await tg('sendMessage', { chat_id: app.chat_id, text: '❌ К сожалению, мастер отменил вашу запись. Пожалуйста, выберите другое время.' });
+          }
+
           await answerCallbackQuery(cb.id, 'Запись отменена ❌');
           const card = await buildCard(appointmentId);
           if (card) await editMessageText(chatId, messageId, card.text, card.keyboard);

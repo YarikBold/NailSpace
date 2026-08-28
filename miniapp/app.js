@@ -47,6 +47,14 @@ const app = {
     showScreen: function(screenId) {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById(`screen-${screenId}`).classList.add('active');
+        
+        const header = document.getElementById('mainHeader');
+        if (screenId === 'services' || screenId === 'my-bookings') {
+            header.style.display = 'flex';
+        } else {
+            header.style.display = 'none';
+        }
+        
         this.updateStickyFooter(screenId);
     },
 
@@ -59,26 +67,29 @@ const app = {
             return;
         }
 
+        const today = new Date();
+        today.setHours(0,0,0,0);
+
         const { data: apps, error } = await sb
             .from('appointments')
-            .select('*, slots(slot_time)')
+            .select('*, slots!inner(slot_time)')
             .eq('chat_id', String(chatId))
-            .order('created_at', { ascending: false });
+            .in('status', ['new', 'confirmed'])
+            .gte('slots.slot_time', today.toISOString())
+            .order('slot_time', { foreignTable: 'slots', ascending: true });
 
         if (error || !apps || apps.length === 0) {
-            list.innerHTML = '<p class="slots-loading">У вас пока нет записей.</p><button class="btn-primary" style="margin-top:20px;width:100%" onclick="window.location.href=\'?screen=services\'">Записаться</button>';
+            list.innerHTML = '<p class="slots-loading">У вас пока нет активных записей.</p><button class="btn-primary" style="margin-top:20px;width:100%" onclick="window.location.href=\'?screen=services\'">Записаться</button>';
             return;
         }
 
-        list.innerHTML = apps.map(a => {
-            const slotDate = a.slots?.slot_time ? new Date(a.slots.slot_time) : null;
-            const timeStr = slotDate ? slotDate.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : 'Время неизвестно';
+        let html = apps.map(a => {
+            const slotDate = new Date(a.slots.slot_time);
+            const timeStr = slotDate.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
             
             let statusText = '';
             if (a.status === 'new') statusText = '<span style="color:#facc15">Ожидает подтверждения</span>';
             if (a.status === 'confirmed') statusText = '<span style="color:#4ade80">Подтверждена</span>';
-            if (a.status === 'completed') statusText = '<span style="color:#9ca3af">Завершена</span>';
-            if (a.status === 'canceled') statusText = '<span style="color:#f87171">Отменена</span>';
 
             return `
             <div class="service-card" style="margin-bottom:16px;">
@@ -87,11 +98,14 @@ const app = {
                     <div><strong>Дата:</strong> ${timeStr}</div>
                     <div><strong>Цена:</strong> ${a.price || '—'} ₽</div>
                     <div><strong>Статус:</strong> ${statusText}</div>
-                    ${(a.status === 'new' || a.status === 'confirmed') ? `<button class="btn-secondary" style="margin-top:12px;width:100%;background:rgba(255,255,255,0.1);color:#fff" onclick="app.cancelBooking('${a.id}')">Отменить запись</button>` : ''}
+                    <button class="btn-secondary" style="margin-top:12px;width:100%;background:rgba(255,255,255,0.1);color:#fff" onclick="app.cancelBooking('${a.id}')">Отменить запись</button>
                 </div>
             </div>
             `;
         }).join('');
+        
+        html += `<button class="btn-primary" style="margin-top:16px;width:100%" onclick="window.location.href='?screen=services'">Записаться ещё</button>`;
+        list.innerHTML = html;
     },
 
     cancelBooking: async function(id) {

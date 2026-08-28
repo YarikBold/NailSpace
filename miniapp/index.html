@@ -20,36 +20,37 @@
 </head>
 <body>
     <div id="app" class="app-container">
-        <!-- Экран 1: Профиль и Услуги -->
-        <section id="screen-services" class="screen active">
-            <header class="master-header">
-                <img src="../logo_app.png" alt="NailSpace Logo" class="master-logo">
-                <h1 class="master-name">nail space</h1>
-                
-                <div class="master-socials">
-                    <a href="https://t.me/n_s_les" target="_blank" class="social-btn">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </a>
-                    <a href="tel:+79990000000" class="social-btn" id="phoneBtn">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M22 16.92V21A2 2 0 0 1 19.91 23C15.7 22.5 11.77 20.67 8.5 17.81C5.46 15.11 3.2 11.45 2.15 7.37A2 2 0 0 1 4.12 5H8.28A2 2 0 0 1 10.22 6.72L10.9 9.87A2 2 0 0 1 10.33 12L8.21 14.12C9.64 16.63 11.63 18.63 14.15 20L16.27 17.88A2 2 0 0 1 18.42 17.31L21.57 17.98A2 2 0 0 1 22 16.92Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </a>
-                </div>
-                
-                <div class="master-rating" id="masterRating">
-                    <span class="rating-star">★</span>
-                    <span class="rating-val">5.0</span>
-                    <span class="rating-count">1 оценка</span>
-                </div>
-                
-                <p class="master-desc">
-                    Всем привет, я начинающий мастер маникюра, принимаю на дому, готова вам доставить комфортную атмосферу и красивые новые ноготочки
-                </p>
-            </header>
+        <!-- Общая шапка (профиль) -->
+        <header class="master-header" id="mainHeader">
+            <img src="../logo_app.png" alt="NailSpace Logo" class="master-logo">
+            <h1 class="master-name">nail space</h1>
             
+            <div class="master-socials">
+                <a href="https://t.me/n_s_les" target="_blank" class="social-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </a>
+                <a href="tel:+79990000000" class="social-btn" id="phoneBtn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22 16.92V21A2 2 0 0 1 19.91 23C15.7 22.5 11.77 20.67 8.5 17.81C5.46 15.11 3.2 11.45 2.15 7.37A2 2 0 0 1 4.12 5H8.28A2 2 0 0 1 10.22 6.72L10.9 9.87A2 2 0 0 1 10.33 12L8.21 14.12C9.64 16.63 11.63 18.63 14.15 20L16.27 17.88A2 2 0 0 1 18.42 17.31L21.57 17.98A2 2 0 0 1 22 16.92Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </a>
+            </div>
+            
+            <div class="master-rating" id="masterRating">
+                <span class="rating-star">★</span>
+                <span class="rating-val">5.0</span>
+                <span class="rating-count">1 оценка</span>
+            </div>
+            
+            <p class="master-desc">
+                Всем привет, я начинающий мастер маникюра, принимаю на дому, готова вам доставить комфортную атмосферу и красивые новые ноготочки
+            </p>
+        </header>
+
+        <!-- Экран 1: Услуги -->
+        <section id="screen-services" class="screen active">
             <div class="portfolio-carousel" id="portfolioGallery">
                 <!-- Фото -->
             </div>
@@ -128,10 +129,15 @@
 
         <!-- Экран 4: Успех -->
         <section id="screen-success" class="screen" style="text-align:center; padding-top:40px;">
-            <img src="../logo_app.png" alt="NailSpace Logo" class="master-logo">
-            <h2 style="margin-bottom:16px;">Ура, вы записаны! 🎉</h2>
+            <div style="width: 80px; height: 80px; background: rgba(164, 90, 255, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+            </div>
+            <h2 style="margin-bottom:16px;">Ура, вы записаны!</h2>
             <div style="background:var(--bg-card); border-radius:var(--radius-lg); padding:20px; text-align:left; margin-bottom:24px;">
-                <p style="margin-bottom:8px; color:var(--text-muted)">Ваша запись отправлена мастеру на подтверждение. Ожидайте уведомление.</p>
+                <p style="margin-bottom:12px; color:var(--text-muted)">Ваша запись отправлена мастеру на подтверждение. Ожидайте уведомление.</p>
                 <div style="margin-bottom:8px;"><strong>Услуга:</strong> <span id="successService"></span></div>
                 <div><strong>Дата и время:</strong> <span id="successDateTime"></span></div>
             </div>
@@ -141,7 +147,7 @@
         <!-- Экран 5: Мои Записи -->
         <section id="screen-my-bookings" class="screen">
             <div class="screen-header">
-                <h2>Мои записи</h2>
+                <h2 style="width:100%; text-align:center;">Мои записи</h2>
             </div>
             
             <div class="my-bookings-list" id="myBookingsList">

@@ -61,15 +61,16 @@ h1, h2, h3 {
 
 /* === HEADER (Screen 1) === */
 .master-header {
-    background: linear-gradient(180deg, #b062ff 0%, #7623cf 100%);
+    background: linear-gradient(135deg, #d896ff 0%, #a45aff 100%);
+    padding: 30px 20px 40px;
     border-radius: 0 0 32px 32px;
+    text-align: center;
+    color: #fff;
+    position: relative;
+    box-shadow: 0 4px 20px rgba(164, 90, 255, 0.25);
     display: flex;
     flex-direction: column;
     align-items: center;
-    text-align: center;
-    padding: 32px 16px 24px;
-    margin-bottom: 24px;
-    box-shadow: 0 10px 30px rgba(170, 93, 253, 0.2);
 }
 
 .master-logo {
@@ -428,6 +429,12 @@ textarea {
     cursor: pointer;
     position: relative;
     overflow: hidden;
+    padding: 0;
+    margin: 0;
+}
+.photo-upload-btn svg {
+    display: block;
+    margin: auto;
 }
 .photo-upload-btn input {
     display: none;
