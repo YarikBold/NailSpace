@@ -182,14 +182,19 @@ const app = {
     renderServices: function() {
         const list = document.getElementById('servicesList');
         list.innerHTML = state.services.map(s => `
-            <div class="service-card">
+            <div class="service-card" onclick="app.selectService('${s.id}')">
                 <div class="service-name">${s.name}</div>
                 <div class="service-footer">
                     <div>
                         <div class="service-price">${s.price_min}${s.price_max > s.price_min ? ' - ' + s.price_max : ''} ₽</div>
                         <div class="service-duration">${s.duration_hours} ч</div>
                     </div>
-                    <button class="btn-pill" data-id="${s.id}" onclick="app.selectService('${s.id}')">Выбрать</button>
+                    <button class="btn-pill" data-id="${s.id}" onclick="app.selectService('${s.id}'); event.stopPropagation();">
+                        <div class="btn-pill-wrapper">
+                            <span>Выбрать</span>
+                            <span>Выбрано</span>
+                        </div>
+                    </button>
                 </div>
             </div>
         `).join('');
@@ -199,12 +204,13 @@ const app = {
         state.selectedService = state.services.find(s => s.id === id);
         
         // Update UI buttons
-        document.querySelectorAll('.service-card .btn-pill').forEach(btn => {
+        document.querySelectorAll('.service-card').forEach(card => {
+            const btn = card.querySelector('.btn-pill');
             if (btn.dataset.id === id) {
-                btn.textContent = 'Выбрано ✓';
+                card.classList.add('selected');
                 btn.classList.add('selected');
             } else {
-                btn.textContent = 'Выбрать';
+                card.classList.remove('selected');
                 btn.classList.remove('selected');
             }
         });

@@ -1148,23 +1148,25 @@ async function buildJournal() {
   const fmt = (iso: string) => new Date(iso).toLocaleString('ru-RU', {
     weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
   });
-  const mark = (s: string) => (s === 'confirmed' ? '✅' : '🆕');
 
   const nearest = apps[0];
-  let text =
-    `⏱ *БЛИЖАЙШАЯ ЗАПИСЬ*\n` +
-    `📅 ${fmt(nearest.slots.slot_time)}\n` +
-    `👤 ${nearest.client_name} | 📞 ${nearest.phone}\n` +
-    `✨ ${nearest.service}\n` +
-    `💰 ${nearest.price || '—'} ₽ · ${mark(nearest.status)} ${nearest.status === 'confirmed' ? 'подтверждена' : 'новая'}\n\n` +
-    `👇 Нажми на запись, чтобы открыть карточку и фото`;
+  const card = await buildCard(nearest.id);
+  if (!card) return { text: 'Ошибка загрузки карточки', keyboard: null };
 
-  const keyboard: any[] = [[
-    { text: `🔍 ${fmt(nearest.slots.slot_time)} — ${nearest.client_name}`, callback_data: `view_${nearest.id}` },
-  ]];
-  apps.slice(1).forEach((a: any) => {
-    keyboard.push([{ text: `🔍 ${fmt(a.slots.slot_time)} — ${a.client_name}`, callback_data: `view_${a.id}` }]);
-  });
+  let text = `⏱ *БЛИЖАЙШАЯ ЗАПИСЬ*\n\n` + card.text;
+  
+  // Мы уберём кнопку "К журналу" из карточки, так как мы УЖЕ в журнале
+  const keyboard = card.keyboard.filter(row => !row.some(b => b.callback_data === 'back_journal'));
+
+  if (apps.length > 1) {
+    keyboard.push([{ text: '👇 ДРУГИЕ ЗАПИСИ:', callback_data: 'ignore' }]);
+    apps.slice(1).forEach((a: any) => {
+      keyboard.push([{ text: `🔍 ${fmt(a.slots.slot_time)} — ${a.client_name}`, callback_data: `view_${a.id}` }]);
+    });
+  }
+  
+  keyboard.push([{ text: '📋 В главное меню', callback_data: 'all_journal' }]);
+
   return { text, keyboard };
 }
 

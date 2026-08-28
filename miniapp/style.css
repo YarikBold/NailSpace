@@ -138,6 +138,7 @@ h1, h2, h3 {
     padding: 16px 0;
     scroll-snap-type: x mandatory;
     scrollbar-width: none; /* Firefox */
+    justify-content: center;
 }
 .portfolio-carousel::-webkit-scrollbar { display: none; }
 
@@ -187,14 +188,22 @@ h1, h2, h3 {
 }
 
 .service-card {
-    background: var(--bg-main);
+    background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: 16px;
     margin-bottom: 12px;
-    display: flex;
-    flex-direction: column;
+    transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    cursor: pointer;
 }
+.service-card:hover, .service-card:active {
+    transform: translateY(-2px);
+}
+.service-card.selected {
+    background: rgba(164, 90, 255, 0.1);
+    border-color: var(--accent);
+}
+
 .service-card:last-child {
     margin-bottom: 0;
 }
@@ -221,20 +230,42 @@ h1, h2, h3 {
 }
 
 .btn-pill {
-    background: var(--accent);
-    color: var(--bg-main);
+    background: rgba(216, 150, 255, 0.2);
+    color: var(--text-main);
     border: none;
-    padding: 8px 20px;
     border-radius: var(--radius-pill);
+    padding: 8px 20px;
     font-family: var(--font-body);
     font-weight: 600;
     font-size: 14px;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    position: relative;
+    display: inline-flex;
+    flex-direction: column;
+    height: 36px;
+    box-sizing: border-box;
+}
+.btn-pill-wrapper {
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+}
+.btn-pill span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 20px;
 }
 .btn-pill.selected {
-    background: rgba(255,255,255,0.1);
-    color: var(--text-main);
+    background: linear-gradient(135deg, #d896ff 0%, #a45aff 100%);
+    color: var(--bg-main);
+    box-shadow: 0 4px 10px rgba(164, 90, 255, 0.3);
+}
+.btn-pill.selected .btn-pill-wrapper {
+    transform: translateY(-20px);
 }
 
 /* === HEADER COMPONENT === */
@@ -496,15 +527,16 @@ textarea {
 }
 
 .btn-primary {
-    background: var(--accent);
+    background: linear-gradient(135deg, #d896ff 0%, #a45aff 100%);
     color: var(--bg-main);
     border: none;
     border-radius: var(--radius-pill);
-    padding: 12px 24px;
-    font-size: 15px;
+    padding: 16px;
+    font-size: 16px;
     font-weight: 600;
-    font-family: var(--font-body);
     cursor: pointer;
+    transition: transform 0.2s ease, opacity 0.2s;
+    box-shadow: 0 4px 15px rgba(164, 90, 255, 0.25);
 }
 .btn-secondary {
     background: var(--accent);
