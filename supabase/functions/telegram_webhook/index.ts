@@ -222,10 +222,15 @@ Deno.serve(async (req) => {
           text: text,
           parse_mode: 'Markdown',
           reply_markup: {
-            inline_keyboard: [[
-              { text: '✅ Подтвердить', callback_data: `confirm_${update.appointmentId}` },
-              { text: '💰 Занести в кассу', callback_data: `cash_${update.appointmentId}` },
-            ]],
+            inline_keyboard: [
+              [
+                { text: '✅ Подтвердить', callback_data: `confirm_${update.appointmentId}` },
+                { text: '💰 В кассу', callback_data: `cash_${update.appointmentId}` }
+              ],
+              [
+                { text: '❌ Отменить', callback_data: `cancel_${update.appointmentId}` }
+              ]
+            ],
           },
         });
         return json({ success: true, sent: true });

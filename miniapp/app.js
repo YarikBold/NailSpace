@@ -79,7 +79,7 @@ const app = {
             .order('slot_time', { foreignTable: 'slots', ascending: true });
 
         if (error || !apps || apps.length === 0) {
-            list.innerHTML = '<p class="slots-loading">У вас пока нет активных записей.</p><button class="btn-primary" style="margin-top:20px;width:100%" onclick="window.location.href=\'?screen=services\'">Записаться</button>';
+            list.innerHTML = '<div style="text-align:center; padding: 20px 0;"><p style="margin-bottom:24px; color:var(--text-muted);">У вас пока нет активных записей.</p><button class="btn-primary" style="width:100%" onclick="window.location.href=\'?screen=services\'">Записаться</button></div>';
             return;
         }
 
