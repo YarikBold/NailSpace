@@ -278,15 +278,16 @@ h1, h2, h3 {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 32px;
-    padding: 0 16px;
+    height: 36px;
+    padding: 0 24px;
     background: rgba(216,150,255,0.2);
     color: var(--text-main);
     border-radius: var(--radius-pill);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
     text-decoration: none;
     width: fit-content;
+    white-space: nowrap;
     margin: 0 auto 24px;
     transition: transform 0.2s;
 }
