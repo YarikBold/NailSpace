@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg: #FDFBF7;
     --accent: #9B72CF;
     --accent-light: #B892FF;
@@ -983,6 +983,27 @@ ul {
     opacity: 1;
     transform: translateY(0);
 }
+
+/* ===== Inline validation errors ===== */
+.field-error {
+    display: block;
+    margin-top: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #d94f5c;
+    animation: fieldErrorIn 0.3s ease;
+}
+
+@keyframes fieldErrorIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.input--error {
+    border-color: #d94f5c !important;
+    box-shadow: 0 0 0 3px rgba(217, 79, 92, 0.15) !important;
+}
+
 
 .footer {
     background: linear-gradient(150deg, var(--lavender-soft), var(--lavender));

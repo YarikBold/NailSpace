@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -347,10 +347,9 @@
         </a>
         <p class="footer__master">Мастер Олеся — твой идеальный маникюр</p>
         <div class="footer__socials">
-            <a href="#" class="footer__social">Telegram</a>
-            <a href="#" class="footer__social">WhatsApp</a>
-            <a href="#" class="footer__social">Instagram</a>
-            <a href="#" class="footer__social">VK</a>
+            <a href="https://t.me/n_s_les" target="_blank" rel="noopener noreferrer" class="footer__social">Telegram</a>
+            <a href="https://t.me/nailspace_lip" target="_blank" rel="noopener noreferrer" class="footer__social">Telegram-канал</a>
+            <a href="https://vk.com" target="_blank" rel="noopener noreferrer" class="footer__social">VK</a>
         </div>
         <div class="footer__info">
             <span>г. Липецк, мкр 20</span>
@@ -759,23 +758,61 @@
         });
     }
 
+    /* ===== INLINE-ВАЛИДАЦИЯ: показ/скрытие ошибок ===== */
+    function showFieldError(fieldEl, message) {
+        clearFieldError(fieldEl);
+        const err = document.createElement('span');
+        err.className = 'field-error';
+        err.textContent = message;
+        fieldEl.closest('.field')?.appendChild(err);
+        fieldEl.classList.add('input--error');
+    }
+    function clearFieldError(fieldEl) {
+        fieldEl.classList.remove('input--error');
+        const existing = fieldEl.closest('.field')?.querySelector('.field-error');
+        if (existing) existing.remove();
+    }
+    // Авто-очистка ошибок при вводе
+    document.getElementById('name').addEventListener('input', function() { clearFieldError(this); });
+    phoneInput.addEventListener('input', function() { clearFieldError(this); });
+    document.querySelectorAll('#service-group input').forEach(r => r.addEventListener('change', () => {
+        const grp = document.getElementById('service-group');
+        clearFieldError(grp);
+    }));
+
     /* ===== ОТПРАВКА ФОРМЫ: SUPABASE + TELEGRAM ===== */
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+
+        // Inline-валидация
+        let hasErrors = false;
+        const nameInput = document.getElementById('name');
+        if (!nameInput.value.trim()) {
+            showFieldError(nameInput, 'Пожалуйста, укажи своё имя');
+            hasErrors = true;
+        }
+        if (!phoneInput.value.trim() || !/^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/.test(phoneInput.value)) {
+            showFieldError(phoneInput, 'Введи полный номер телефона');
+            hasErrors = true;
+        }
+        const baseService = document.querySelector('#service-group input:checked');
+        if (!baseService) {
+            const svcGroup = document.getElementById('service-group');
+            showFieldError(svcGroup, 'Пожалуйста, выбери услугу');
+            hasErrors = true;
+        }
+        const slotInput = document.querySelector('#slots-group input:checked');
+        if (!slotInput) {
+            showToast('Пожалуйста, выбери свободное окошко.');
+            hasErrors = true;
+        }
+        if (hasErrors) return;
 
         const originalText = submitBtn.textContent;
         submitBtn.disabled = true;
         submitBtn.textContent = 'Отправляем…';
 
-        try {
-            // слот обязателен
-            const slotInput = document.querySelector('#slots-group input:checked');
-            if (!slotInput) {
-                showToast('Пожалуйста, выбери свободное окошко.');
-                submitBtn.textContent = originalText;
-                submitBtn.disabled = false;
-                return;
-            }
+            try {
 
             const data = Object.fromEntries(new FormData(form).entries());
 
