@@ -4,9 +4,9 @@ Telegram.WebApp.expand();
 
 // Theme setup based on Telegram
 const tgColor = Telegram.WebApp.themeParams.bg_color;
-if (tgColor) {
-    document.documentElement.style.setProperty('--bg-main', tgColor);
-}
+// if (tgColor) {
+//     document.documentElement.style.setProperty('--bg-main', tgColor);
+// }
 
 // Supabase Connection
 const SUPABASE_URL = 'https://dteggoslnxkwzjbsfuul.supabase.co';
@@ -68,11 +68,11 @@ const app = {
 
         // Load calendar slots
         const today = new Date().toISOString().split('T')[0];
-        const { data: slotsData } = await sb.from('slots').select('*').eq('status', 'available').gte('start_time', today).order('start_time');
+        const { data: slotsData } = await sb.from('slots').select('*').eq('status', 'available').gte('slot_time', today).order('slot_time');
         
         if (slotsData) {
             state.slots = slotsData.map(s => {
-                const d = new Date(s.start_time);
+                const d = new Date(s.slot_time);
                 const localStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
                 const key = localStr.split('T')[0];
                 return { id: s.id, date: d, key, month: key.slice(0, 7) };

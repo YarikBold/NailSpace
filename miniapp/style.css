@@ -1,20 +1,20 @@
 :root {
-    --bg-main: #14141e;
-    --bg-card: #1c1c28;
-    --bg-card-hover: #232332;
-    --accent: #e5d9f2;
-    --accent-dark: #c4b5e0;
+    --bg-main: #aa5dfd;
+    --bg-card: rgba(255, 255, 255, 0.1);
+    --bg-card-hover: rgba(255, 255, 255, 0.2);
+    --accent: #ffffff;
+    --accent-dark: #e5d9f2;
     --text-main: #ffffff;
-    --text-muted: #8b8b9e;
-    --border: rgba(255, 255, 255, 0.08);
-    --border-accent: rgba(229, 217, 242, 0.3);
+    --text-muted: rgba(255, 255, 255, 0.75);
+    --border: rgba(255, 255, 255, 0.15);
+    --border-accent: rgba(255, 255, 255, 0.3);
     
     --radius-lg: 20px;
     --radius-md: 12px;
     --radius-pill: 999px;
     
     --font-heading: 'Cormorant Garamond', serif;
-    --font-body: 'Manrope', sans-serif;
+    --font-body: 'Cormorant Garamond', serif;
 }
 
 * {
@@ -24,7 +24,9 @@
 }
 
 body {
-    background-color: var(--bg-main);
+    background: linear-gradient(180deg, #b062ff 0%, #1e1528 100%);
+    background-attachment: fixed;
+    min-height: 100vh;
     color: var(--text-main);
     font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
@@ -70,12 +72,13 @@ h1, h2, h3 {
 }
 
 .master-logo {
-    width: 96px;
-    height: 96px;
-    border-radius: var(--radius-lg);
+    width: 140px;
+    height: 140px;
+    border-radius: 44px;
     object-fit: cover;
-    margin-bottom: 12px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    margin-bottom: 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    background-color: #fff;
 }
 
 .master-name {
@@ -106,15 +109,16 @@ h1, h2, h3 {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 16px;
+    padding: 8px 24px;
     border-radius: var(--radius-pill);
-    border: 1px solid var(--border-accent);
-    margin-bottom: 20px;
-    font-size: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
+    margin-bottom: 24px;
+    font-size: 16px;
     font-weight: 500;
 }
-.rating-star { color: #facc15; }
-.rating-count { color: var(--text-muted); font-size: 13px; }
+.rating-star { color: #facc15; font-size: 18px; }
+.rating-count { color: var(--text-main); font-size: 14px; opacity: 0.9; }
 
 .master-desc {
     font-size: 15px;
