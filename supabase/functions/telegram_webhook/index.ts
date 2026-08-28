@@ -149,10 +149,10 @@ Deno.serve(async (req) => {
   // ================= НАСТРОЙКА КОМАНД БОТА =================
   if (req.method === 'GET' && url.searchParams.has('setup_commands')) {
     try {
-      // Для всех пользователей (клиентов) — пустой список команд (меню не отображается)
+      // Для всех пользователей (клиентов) — пустой список команд (скрываем команды BotFather)
       await tg('setMyCommands', {
         commands: [],
-        scope: { type: 'default' }
+        scope: { type: 'all_private_chats' }
       });
 
       // Для мастера — полный набор команд
@@ -601,8 +601,10 @@ Deno.serve(async (req) => {
            }
            if (cb.data === 'cbook_my') {
              await answerCallbackQuery(cb.id, '');
-             const my = await buildClientAppointments(String(chatId));
-             await editMessageText(chatId, messageId, my.text, my.keyboard);
+             await tg('sendMessage', {
+               chat_id: chatId,
+               text: 'Пожалуйста, используй новую кнопку «📋 Мои записи» в главном меню бота (/start), чтобы открыть список записей.'
+             });
              return json({ success: true });
            }
            if (cb.data.startsWith('cbook_cancel_')) {

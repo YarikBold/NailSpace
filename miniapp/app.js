@@ -31,8 +31,16 @@ const state = {
 // App Logic
 const app = {
     init: async function() {
-        this.showScreen('services');
-        await this.loadData();
+        const urlParams = new URLSearchParams(window.location.search);
+        const screenParam = urlParams.get('screen') || Telegram.WebApp.initDataUnsafe?.start_param;
+        
+        if (screenParam === 'my_bookings') {
+            this.showScreen('my-bookings');
+            await this.loadMyBookings();
+        } else {
+            this.showScreen('services');
+            await this.loadData();
+        }
         this.setupEvents();
     },
 
@@ -40,6 +48,79 @@ const app = {
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById(`screen-${screenId}`).classList.add('active');
         this.updateStickyFooter(screenId);
+    },
+
+    loadMyBookings: async function() {
+        const list = document.getElementById('myBookingsList');
+        const chatId = Telegram.WebApp.initDataUnsafe?.user?.id;
+        
+        if (!chatId) {
+            list.innerHTML = '<p class="slots-loading">Откройте приложение внутри Telegram.</p>';
+            return;
+        }
+
+        const { data: apps, error } = await sb
+            .from('appointments')
+            .select('*, slots(slot_time)')
+            .eq('chat_id', String(chatId))
+            .order('created_at', { ascending: false });
+
+        if (error || !apps || apps.length === 0) {
+            list.innerHTML = '<p class="slots-loading">У вас пока нет записей.</p><button class="btn-primary" style="margin-top:20px;width:100%" onclick="window.location.href=\'?screen=services\'">Записаться</button>';
+            return;
+        }
+
+        list.innerHTML = apps.map(a => {
+            const slotDate = a.slots?.slot_time ? new Date(a.slots.slot_time) : null;
+            const timeStr = slotDate ? slotDate.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : 'Время неизвестно';
+            
+            let statusText = '';
+            if (a.status === 'new') statusText = '<span style="color:#facc15">Ожидает подтверждения</span>';
+            if (a.status === 'confirmed') statusText = '<span style="color:#4ade80">Подтверждена</span>';
+            if (a.status === 'completed') statusText = '<span style="color:#9ca3af">Завершена</span>';
+            if (a.status === 'canceled') statusText = '<span style="color:#f87171">Отменена</span>';
+
+            return `
+            <div class="service-card" style="margin-bottom:16px;">
+                <div class="service-name">${a.service}</div>
+                <div class="service-footer" style="flex-direction:column; align-items:flex-start; gap:8px;">
+                    <div><strong>Дата:</strong> ${timeStr}</div>
+                    <div><strong>Цена:</strong> ${a.price || '—'} ₽</div>
+                    <div><strong>Статус:</strong> ${statusText}</div>
+                    ${(a.status === 'new' || a.status === 'confirmed') ? `<button class="btn-secondary" style="margin-top:12px;width:100%;background:rgba(255,255,255,0.1);color:#fff" onclick="app.cancelBooking('${a.id}')">Отменить запись</button>` : ''}
+                </div>
+            </div>
+            `;
+        }).join('');
+    },
+
+    cancelBooking: async function(id) {
+        if (!confirm('Точно отменить запись?')) return;
+        const btn = event.target;
+        btn.textContent = 'Отменяем...';
+        btn.disabled = true;
+
+        try {
+            const { data: appData } = await sb.from('appointments').select('slot_id').eq('id', id).single();
+            await sb.from('appointments').update({ status: 'canceled' }).eq('id', id);
+            if (appData && appData.slot_id) {
+                await sb.from('slots').update({ status: 'available' }).eq('id', appData.slot_id);
+            }
+            
+            // Notify master via Edge function
+            fetch(EDGE_FUNCTION_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY, 'x-notify-secret': NOTIFY_SECRET },
+                body: JSON.stringify({ action: 'cancel_appointment', appointmentId: id })
+            }).catch(() => {});
+
+            alert('Запись отменена.');
+            this.loadMyBookings();
+        } catch (e) {
+            alert('Ошибка при отмене.');
+            btn.textContent = 'Отменить запись';
+            btn.disabled = false;
+        }
     },
 
     loadData: async function() {
