@@ -120,10 +120,22 @@
                 <div class="photos-grid" id="photosGrid">
                     <label class="photo-upload-btn">
                         <input type="file" accept="image/*" id="photoInput" multiple>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12h14"/></svg>
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 5v14M5 12h14"/></svg>
                     </label>
                 </div>
             </div>
+        </section>
+
+        <!-- Экран 4: Успех -->
+        <section id="screen-success" class="screen" style="text-align:center; padding-top:40px;">
+            <img src="../logo_app.png" alt="NailSpace Logo" class="master-logo">
+            <h2 style="margin-bottom:16px;">Ура, вы записаны! 🎉</h2>
+            <div style="background:var(--bg-card); border-radius:var(--radius-lg); padding:20px; text-align:left; margin-bottom:24px;">
+                <p style="margin-bottom:8px; color:var(--text-muted)">Ваша запись отправлена мастеру на подтверждение. Ожидайте уведомление.</p>
+                <div style="margin-bottom:8px;"><strong>Услуга:</strong> <span id="successService"></span></div>
+                <div><strong>Дата и время:</strong> <span id="successDateTime"></span></div>
+            </div>
+            <button class="btn-primary" style="width:100%" onclick="Telegram.WebApp.close()">Супер, спасибо!</button>
         </section>
 
         <!-- Экран 5: Мои Записи -->

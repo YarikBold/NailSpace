@@ -155,6 +155,15 @@ Deno.serve(async (req) => {
         scope: { type: 'all_private_chats' }
       });
 
+      // Настройка главной кнопки меню "Записаться"
+      await tg('setChatMenuButton', {
+        menu_button: {
+          type: 'web_app',
+          text: 'Записаться',
+          web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/' }
+        }
+      });
+
       // Для мастера — полный набор команд
       await tg('setMyCommands', {
         commands: [
@@ -313,11 +322,8 @@ Deno.serve(async (req) => {
                const hasPast = pastApps && pastApps.length > 0;
                const kb: any[] = [
                  [{ text: '📅 Записаться', web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/' } }],
-                 [{ text: '📋 Мои записи', callback_data: 'cbook_my' }]
+                 [{ text: '📋 Мои записи', web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/?screen=my_bookings' } }]
                ];
-               if (hasPast) {
-                 kb.push([{ text: '🔄 Повторная запись', web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/' } }]);
-               }
                await tg('sendMessage', {
                  chat_id: chatId,
                  text: '👋 Привет! Я бот NailSpace.\nЗдесь ты можешь записаться на маникюр или посмотреть свои активные записи.',
