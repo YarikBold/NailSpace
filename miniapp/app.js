@@ -162,8 +162,7 @@ const app = {
         }
 
         // Load calendar slots
-        const today = new Date().toISOString().split('T')[0];
-        const { data: slotsData } = await sb.from('slots').select('*').eq('status', 'available').gte('slot_time', today).order('slot_time');
+        const { data: slotsData } = await sb.from('slots').select('*').eq('status', 'available').gte('slot_time', new Date().toISOString()).order('slot_time');
         
         if (slotsData) {
             state.slots = slotsData.map(s => {
