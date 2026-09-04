@@ -1143,7 +1143,7 @@ async function buildJournal() {
   const { data: apps, error } = await supabase.from('appointments')
     .select('id, client_name, phone, service, price, status, slots!inner ( slot_time )')
     .in('status', ['new', 'confirmed'])
-    .gte('slots.slot_time', new Date().toISOString())
+    .gte('slots.slot_time', new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' }) + 'T00:00:00+03:00')
     .order('slot_time', { foreignTable: 'slots', ascending: true })
     .limit(10);
 
@@ -1180,7 +1180,7 @@ async function buildAllMenu() {
   const { count: upcoming } = await supabase.from('appointments')
     .select('id, slots!inner ( slot_time )', { count: 'exact', head: true })
     .in('status', ['new', 'confirmed'])
-    .gte('slots.slot_time', new Date().toISOString());
+    .gte('slots.slot_time', new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' }) + 'T00:00:00+03:00');
 
   const { count: done } = await supabase.from('appointments')
     .select('id', { count: 'exact', head: true })
