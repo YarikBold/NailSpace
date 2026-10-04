@@ -790,7 +790,7 @@
            Токен бота и CHAT_ID хранятся в секретах функции на сервере.
            Фронт лишь сообщает «произошла запись» и передаёт настоящий id из БД */
         async function sendTelegramNotification(a, slotTime, contact) {
-            await fetch(EDGE_FUNCTION_URL, {
+            const response = await fetch(EDGE_FUNCTION_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -810,6 +810,9 @@
                     comment: a.comment || ''
                 })
             });
+            if (!response.ok) {
+                throw new Error('Edge Function notification failed: ' + response.status);
+            }
         }
 
         /* ===== INLINE-ВАЛИДАЦИЯ: показ/скрытие ошибок ===== */
