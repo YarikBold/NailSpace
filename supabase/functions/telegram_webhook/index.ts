@@ -5,14 +5,13 @@ const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!; // внедряется автоматически
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!; // внедряется автоматически
 const MASTER_CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID')!;
-const NOTIFY_SECRET = Deno.env.get('NOTIFY_SECRET')!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-notify-secret',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 const PHOTO_CAPTIONS: Record<string, string> = {
@@ -204,18 +203,30 @@ Deno.serve(async (req) => {
 
       // ---- Новая заявка с сайта ----
       if (update.action === 'new_appointment') {
-        if (req.headers.get('x-notify-secret') !== NOTIFY_SECRET) {
-          return json({ error: 'Unauthorized' }, 401);
+        if (!update.appointmentId || !/^[0-9a-f-]{36}$/i.test(update.appointmentId)) {
+          return json({ error: 'Invalid appointmentId' }, 400);
         }
+        const { data: appointment, error: appointmentError } = await supabase
+          .from('appointments')
+          .select('id, client_name, phone, contact, service, price, comment, slots!inner(slot_time)')
+          .eq('id', update.appointmentId)
+          .single();
+        if (appointmentError || !appointment) {
+          return json({ error: 'Appointment not found' }, 404);
+        }
+        const slotTime = new Date(appointment.slots.slot_time).toLocaleString('ru-RU', {
+          weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+          timeZone: 'Europe/Moscow',
+        });
         const text =
           `💅 *НОВАЯ ЗАПИСЬ В NAILSPACE*\n\n` +
-          `👤 *Клиент:* ${update.clientName}\n` +
-          `📞 *Телефон:* ${update.phone}\n` +
-          `🔗 Контакт${update.contactType ? ` (${update.contactType})` : ''}: ${update.contact || '—'}\n` +
-          `✨ *Услуга:* ${update.service}\n` +
-          `📅 *Время:* ${update.slotTime}\n` +
-          `💰 *Стоимость:* ${update.price} ₽\n` +
-          `📝 *Комментарий:* ${update.comment || '—'}`;
+          `👤 *Клиент:* ${appointment.client_name}\n` +
+          `📞 *Телефон:* ${appointment.phone}\n` +
+          `🔗 Контакт: ${appointment.contact || '—'}\n` +
+          `✨ *Услуга:* ${appointment.service}\n` +
+          `📅 *Время:* ${slotTime}\n` +
+          `💰 *Стоимость:* ${appointment.price} ₽\n` +
+          `📝 *Комментарий:* ${appointment.comment || '—'}`;
 
         await tg('sendMessage', {
           chat_id: MASTER_CHAT_ID,
@@ -224,11 +235,11 @@ Deno.serve(async (req) => {
           reply_markup: {
             inline_keyboard: [
               [
-                { text: '✅ Подтвердить', callback_data: `confirm_${update.appointmentId}` },
-                { text: '💰 В кассу', callback_data: `cash_${update.appointmentId}` }
+                { text: '✅ Подтвердить', callback_data: `confirm_${appointment.id}` },
+                { text: '💰 В кассу', callback_data: `cash_${appointment.id}` }
               ],
               [
-                { text: '❌ Отменить', callback_data: `cancel_${update.appointmentId}` }
+                { text: '❌ Отменить', callback_data: `cancel_${appointment.id}` }
               ]
             ],
           },
