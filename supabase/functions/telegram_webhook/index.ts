@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
             text += '\n📭 Записей на сегодня нет.';
           } else {
             list.forEach((a: any, i: number) => {
-              const t = new Date(a.slots.slot_time).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+              const t = new Date(slotTimeValue(a.slots)).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
               text += `\n${i + 1}. ${t} — ${a.client_name} | ${a.phone}\n   ✨ ${a.service}`;
             });
             text += `\n\nВсего записей: ${list.length}\n📋 /journal — открыть карточки`;
@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
 
       if (nearestList) {
         for (const nearest of nearestList) {
-          const t = new Date(nearest.slots.slot_time).toLocaleString('ru-RU', {
+          const t = new Date(slotTimeValue(nearest.slots)).toLocaleString('ru-RU', {
             weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
           });
           
@@ -214,7 +214,7 @@ Deno.serve(async (req) => {
         if (appointmentError || !appointment) {
           return json({ error: 'Appointment not found' }, 404);
         }
-        const slotTime = new Date(appointment.slots.slot_time).toLocaleString('ru-RU', {
+        const slotTime = new Date(slotTimeValue(appointment.slots)).toLocaleString('ru-RU', {
           weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
           timeZone: 'Europe/Moscow',
         });
@@ -259,7 +259,7 @@ Deno.serve(async (req) => {
           .single();
         if (appointmentError || !appointment) return json({ error: 'Appointment not found' }, 404);
 
-        const slotTime = new Date(appointment.slots.slot_time).toLocaleString('ru-RU', {
+        const slotTime = new Date(slotTimeValue(appointment.slots)).toLocaleString('ru-RU', {
           weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
           timeZone: 'Europe/Moscow',
         });
@@ -1084,6 +1084,10 @@ Deno.serve(async (req) => {
 const statusRu = (s: string) =>
   ({ new: '🆕 новая', confirmed: '✅ подтверждена', completed: '💰 в кассе', canceled: '❌ отменена' }[s] || s);
 
+function slotTimeValue(slots: any) {
+  return Array.isArray(slots) ? slots[0]?.slot_time : slots?.slot_time;
+}
+
 // Карточка записи: контакт, статусы фото, кнопки управления
 async function buildCard(id: string) {
   const { data: a } = await supabase.from('appointments')
@@ -1096,18 +1100,18 @@ async function buildCard(id: string) {
   const hasBefore = (photos || []).some(p => p.kind === 'before');
   const hasRef = (photos || []).some(p => p.kind === 'ref');
 
-  const time = new Date(a.slots.slot_time).toLocaleString('ru-RU', {
+  const time = new Date(slotTimeValue(a.slots)).toLocaleString('ru-RU', {
     weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
   });
 
   const text =
     `📋 *ЗАПИСЬ*\n` +
     `📅 ${time}\n` +
-    `👤 ${a.client_name} | 📞 ${a.phone}\n` +
-    `🔗 Контакт: ${a.contact || '—'}\n` +
-    `✨ ${a.service}\n` +
+    `👤 ${escapeMarkdown(a.client_name)} | 📞 ${escapeMarkdown(a.phone)}\n` +
+    `🔗 Контакт: ${escapeMarkdown(a.contact || '—')}\n` +
+    `✨ ${escapeMarkdown(a.service)}\n` +
     `💰 Ориентир: ${a.price} ₽\n` +
-    `📝 ${a.comment || '—'}\n` +
+    `📝 ${escapeMarkdown(a.comment || '—')}\n` +
     `📷 Фото «исходник»: ${hasBefore ? '✅ есть' : '❌ нет'}\n` +
     `📸 Референс: ${hasRef ? '✅ есть' : '❌ нет'}\n` +
     `Статус: ${statusRu(a.status)}`;
@@ -1151,13 +1155,29 @@ async function buildCard(id: string) {
 async function sendPhotos(chatId: string | number, id: string) {
   const { data: photos } = await supabase.from('appointment_photos')
     .select('kind, file_id').eq('appointment_id', id);
-  for (const p of photos || []) {
+  const items = photos || [];
+  if (items.length > 1) {
+    await tg('sendMediaGroup', {
+      chat_id: chatId,
+      media: items.map(p => ({
+        type: 'photo',
+        media: p.file_id,
+        caption: PHOTO_CAPTIONS[p.kind] || '',
+      })),
+    });
+    return;
+  }
+  for (const p of items) {
     await tg('sendPhoto', {
       chat_id: chatId,
       photo: p.file_id,
       caption: PHOTO_CAPTIONS[p.kind] || '',
     });
   }
+}
+
+function escapeMarkdown(value: unknown) {
+  return String(value ?? '').replace(/([_*[\]`])/g, '\\$1');
 }
 
 // Карточка + фото одним сообщением (используется после добавления фото)
@@ -1201,7 +1221,7 @@ async function buildJournal() {
   if (apps.length > 1) {
     keyboard.push([{ text: '👇 ДРУГИЕ ЗАПИСИ:', callback_data: 'ignore' }]);
     apps.slice(1).forEach((a: any) => {
-      keyboard.push([{ text: `🔍 ${fmt(a.slots.slot_time)} — ${a.client_name}`, callback_data: `view_${a.id}` }]);
+      keyboard.push([{ text: `🔍 ${fmt(slotTimeValue(a.slots))} — ${a.client_name}`, callback_data: `view_${a.id}` }]);
     });
   }
   
@@ -1294,7 +1314,7 @@ async function buildEditMenu(id: string) {
   const { data: a } = await supabase.from('appointments')
     .select('id, client_name, service, slots!inner ( slot_time )').eq('id', id).single();
   if (!a) return null;
-  const time = new Date(a.slots.slot_time).toLocaleString('ru-RU', {
+  const time = new Date(slotTimeValue(a.slots)).toLocaleString('ru-RU', {
     weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
   });
   return {
@@ -1418,7 +1438,7 @@ async function buildClientAppointments(chatId: string) {
 
   if (apps && apps.length > 0) {
      apps.forEach((a: any) => {
-       const time = new Date(a.slots.slot_time).toLocaleString('ru-RU', {
+       const time = new Date(slotTimeValue(a.slots)).toLocaleString('ru-RU', {
          weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow'
        });
        text += `*${counter}.* ${time}\nУслуга: ${a.service}\nСтатус: ${statusRu(a.status)}\n\n`;
@@ -1430,7 +1450,7 @@ async function buildClientAppointments(chatId: string) {
   if (noReviewApps && noReviewApps.length > 0) {
      text += `\n⭐️ *Ждут твоей оценки:*\n\n`;
      noReviewApps.forEach((a: any) => {
-       const time = new Date(a.slots.slot_time).toLocaleString('ru-RU', {
+       const time = new Date(slotTimeValue(a.slots)).toLocaleString('ru-RU', {
          weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow'
        });
        text += `*${counter}.* ${time}\nУслуга: ${a.service}\n`;
