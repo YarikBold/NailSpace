@@ -12,7 +12,6 @@ const tgColor = Telegram.WebApp.themeParams.bg_color;
 const SUPABASE_URL = 'https://dteggoslnxkwzjbsfuul.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_3IXLnsQe-1mNTV9AA-SINg_F7zNnUnj';
 const EDGE_FUNCTION_URL = SUPABASE_URL + '/functions/v1/telegram_webhook';
-const NOTIFY_SECRET = 'nailspace_notify_2026';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -124,7 +123,7 @@ const app = {
             // Notify master via Edge function
             fetch(EDGE_FUNCTION_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY, 'x-notify-secret': NOTIFY_SECRET },
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
                 body: JSON.stringify({ action: 'cancel_appointment', appointmentId: id })
             }).catch(() => {});
 
@@ -469,20 +468,11 @@ const app = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
-                    'x-notify-secret': NOTIFY_SECRET
+                    'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
                 },
                 body: JSON.stringify({
                     action: 'new_appointment',
-                    appointmentId: appointment.id,
-                    clientName: appointment.client_name,
-                    phone: appointment.phone,
-                    contact: appointment.contact,
-                    contactType: 'Телеграм',
-                    service: appointment.service,
-                    comment: appointment.comment,
-                    price: appointment.price,
-                    slotTime: `${dayRu}, ${timeStr}`
+                    appointmentId: appointment.id
                 })
             }).catch(e => console.error(e));
 
