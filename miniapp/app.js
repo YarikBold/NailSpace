@@ -246,30 +246,16 @@ const app = {
         panel.innerHTML = '<p role="status">Загружаю профиль…</p>';
         try {
             const data = await this.masterRequest('master_profile', { kind: 'get' });
-            panel.innerHTML = '<section class="details-section profile-editor profile-hero"><span class="eyebrow">личный кабинет</span><h3>Профиль мастера</h3><p class="profile-subtitle">Эти данные видят клиенты в mini app.</p><form id="profileDescriptionForm"><label for="profileDescription">Описание</label><textarea id="profileDescription" maxlength="2000" aria-label="Описание мастера"></textarea><div class="profile-form-footer"><span class="profile-counter" id="profileCounter">0 / 2000</span><button class="btn-primary">Сохранить</button></div></form></section><section class="details-section profile-editor"><div class="profile-section-head"><div><span class="eyebrow">витрина</span><h3>Услуги</h3></div><span class="profile-section-note">Порядок виден клиенту</span></div><div id="profileServices" class="profile-services-list"></div><form id="profileServiceForm" class="profile-add-form"><label>Новая услуга<input name="name" maxlength="150" placeholder="Например, маникюр с укреплением" required></label><div class="profile-fields"><label>Цена от, ₽<input name="price_min" type="number" min="0" step="1" required></label><label>Цена до, ₽<input name="price_max" type="number" min="0" step="1" required></label><label>Длительность, ч<input name="duration_hours" type="number" min="0.25" max="24" step="0.25" value="3" required></label></div><button class="btn-secondary">＋ Добавить услугу</button></form></section><section class="details-section profile-editor"><div class="profile-section-head"><div><span class="eyebrow">галерея</span><h3>Портфолио</h3></div><span class="profile-section-note">До 10 МБ на фото</span></div><div id="profilePhotos" class="profile-photos"></div><label class="btn-secondary profile-upload">＋ Добавить фотографию<input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><p class="master-slot-hint">JPG, PNG или WebP</p></section>';
+            panel.innerHTML = '<section class="details-section profile-editor profile-hero"><span class="eyebrow">личный кабинет</span><h3>Профиль мастера</h3><p class="profile-subtitle">Эти данные видят клиенты в mini app.</p><form id="profileDescriptionForm"><label for="profileDescription">Описание</label><textarea id="profileDescription" maxlength="2000" aria-label="Описание мастера"></textarea><div class="profile-form-footer"><span class="profile-counter" id="profileCounter">0 / 2000</span><button class="btn-primary">Сохранить</button></div></form></section><section class="details-section profile-editor"><div class="profile-section-head"><div><span class="eyebrow">витрина</span><h3>Услуги</h3></div><span class="profile-section-note">Зажмите карточку и перетащите</span></div><div id="profileServices" class="profile-services-list"></div><button type="button" class="btn-primary profile-save-order" id="profileSaveOrder" hidden>Сохранить порядок</button><form id="profileServiceForm" class="profile-add-form"><label>Новая услуга<input name="name" maxlength="150" placeholder="Например, маникюр с укреплением" required></label><div class="profile-fields"><label>Цена от, ₽<input name="price_min" type="number" min="0" step="1" required></label><label>Цена до, ₽<input name="price_max" type="number" min="0" step="1" required></label><label>Длительность, ч<input name="duration_hours" type="number" min="0.25" max="24" step="0.25" value="3" required></label></div><button class="btn-secondary">＋ Добавить услугу</button></form></section><section class="details-section profile-editor"><div class="profile-section-head"><div><span class="eyebrow">галерея</span><h3>Портфолио</h3></div><span class="profile-section-note">До 10 МБ на фото</span></div><div id="profilePhotos" class="profile-photos"></div><label class="btn-secondary profile-upload">＋ Добавить фотографию<input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><p class="master-slot-hint">JPG, PNG или WebP</p></section>';
             document.getElementById('profileDescription').value = data.profile.description;
             const description = document.getElementById('profileDescription');
             const counter = document.getElementById('profileCounter');
             const updateCounter = () => { counter.textContent = `${description.value.length} / 2000`; };
             description.oninput = updateCounter; updateCounter();
-            const services = document.getElementById('profileServices');
-            data.services.forEach((service, index) => {
-                const row = document.createElement('div'); row.className = 'profile-service-row';
-                const order = document.createElement('div'); order.className = 'profile-service-order';
-                const grip = document.createElement('span'); grip.className = 'profile-service-grip'; grip.textContent = '☷'; grip.setAttribute('aria-hidden', 'true');
-                const up = document.createElement('button'); up.type = 'button'; up.className = 'profile-order-btn'; up.textContent = '↑'; up.title = 'Поднять выше'; up.disabled = index === 0;
-                const down = document.createElement('button'); down.type = 'button'; down.className = 'profile-order-btn'; down.textContent = '↓'; down.title = 'Опустить ниже'; down.disabled = index === data.services.length - 1;
-                up.onclick = () => this.moveProfileService(data.services, index, -1, up);
-                down.onclick = () => this.moveProfileService(data.services, index, 1, down);
-                order.append(grip, up, down);
-                const text = document.createElement('div'); text.className = 'profile-service-copy';
-                const name = document.createElement('strong'); name.textContent = service.name;
-                const meta = document.createElement('small'); meta.textContent = `${service.price_min}–${service.price_max} ₽ · ${service.duration_hours} ч`;
-                text.append(name, meta);
-                const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-secondary'; remove.textContent = 'Убрать';
-                remove.onclick = () => this.saveProfileChange({ kind: 'remove_service', id: service.id }, remove);
-                row.append(order, text, remove); services.append(row);
-            });
+            this.profileServicesDraft = data.services.slice();
+            this.profileServicesDirty = false;
+            this.renderProfileServices();
+            document.getElementById('profileSaveOrder').onclick = event => this.saveProfileOrder(event.currentTarget);
             const photos = document.getElementById('profilePhotos');
             data.photos.forEach(photo => {
                 const row = document.createElement('div');
@@ -309,14 +295,54 @@ const app = {
         } catch (error) { button.disabled = false; setAppStatus(error.message, 'error'); }
     },
 
-    moveProfileService: async function(services, index, direction, button) {
+    renderProfileServices: function() {
+        const services = document.getElementById('profileServices');
+        if (!services) return;
+        services.innerHTML = '';
+        this.profileServicesDraft.forEach((service, index) => {
+            const row = document.createElement('div'); row.className = 'profile-service-row'; row.draggable = true; row.dataset.serviceId = service.id;
+            const order = document.createElement('div'); order.className = 'profile-service-order';
+            const grip = document.createElement('span'); grip.className = 'profile-service-grip'; grip.textContent = '☷'; grip.title = 'Зажмите и перетащите';
+            const up = document.createElement('button'); up.type = 'button'; up.className = 'profile-order-btn'; up.textContent = '↑'; up.title = 'Поднять выше'; up.disabled = index === 0;
+            const down = document.createElement('button'); down.type = 'button'; down.className = 'profile-order-btn'; down.textContent = '↓'; down.title = 'Опустить ниже'; down.disabled = index === this.profileServicesDraft.length - 1;
+            up.onclick = () => this.shiftProfileService(index, -1); down.onclick = () => this.shiftProfileService(index, 1);
+            order.append(grip, up, down);
+            const text = document.createElement('div'); text.className = 'profile-service-copy';
+            const name = document.createElement('strong'); name.textContent = service.name;
+            const meta = document.createElement('small'); meta.textContent = `${service.price_min}–${service.price_max} ₽ · ${service.duration_hours} ч`;
+            text.append(name, meta);
+            const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-secondary'; remove.textContent = 'Убрать';
+            remove.onclick = () => this.saveProfileChange({ kind: 'remove_service', id: service.id }, remove);
+            row.append(order, text, remove); services.append(row);
+            row.ondragstart = () => { this.profileDragIndex = index; row.classList.add('is-dragging'); };
+            row.ondragend = () => { this.profileDragIndex = null; row.classList.remove('is-dragging'); };
+            row.ondragover = event => { event.preventDefault(); row.classList.add('is-drag-over'); };
+            row.ondragleave = () => row.classList.remove('is-drag-over');
+            row.ondrop = event => { event.preventDefault(); row.classList.remove('is-drag-over'); this.dropProfileService(index); };
+        });
+        const save = document.getElementById('profileSaveOrder');
+        if (save) save.hidden = !this.profileServicesDirty;
+    },
+
+    shiftProfileService: function(index, direction) {
         const next = index + direction;
-        if (next < 0 || next >= services.length) return;
-        button.disabled = true;
-        const order = services.map(service => service.id);
-        [order[index], order[next]] = [order[next], order[index]];
-        try { await this.masterRequest('master_profile', { kind: 'reorder_services', order }); await this.loadMasterProfile(); setAppStatus('Порядок услуг обновлён'); }
-        catch (error) { button.disabled = false; setAppStatus(error.message || 'Не удалось изменить порядок', 'error'); }
+        if (next < 0 || next >= this.profileServicesDraft.length) return;
+        [this.profileServicesDraft[index], this.profileServicesDraft[next]] = [this.profileServicesDraft[next], this.profileServicesDraft[index]];
+        this.profileServicesDirty = true; this.renderProfileServices();
+    },
+
+    dropProfileService: function(targetIndex) {
+        const from = this.profileDragIndex;
+        if (from === null || from === undefined || from === targetIndex) return;
+        const [moved] = this.profileServicesDraft.splice(from, 1);
+        this.profileServicesDraft.splice(targetIndex, 0, moved);
+        this.profileServicesDirty = true; this.renderProfileServices();
+    },
+
+    saveProfileOrder: async function(button) {
+        button.disabled = true; setAppStatus('Сохраняю порядок…');
+        try { await this.masterRequest('master_profile', { kind: 'reorder_services', order: this.profileServicesDraft.map(service => service.id) }); this.profileServicesDirty = false; this.renderProfileServices(); setAppStatus('Порядок услуг сохранён'); }
+        catch (error) { button.disabled = false; setAppStatus(error.message || 'Не удалось сохранить порядок', 'error'); }
     },
 
     portfolioUrl: function(value) {
