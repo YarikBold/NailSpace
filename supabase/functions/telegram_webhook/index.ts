@@ -229,6 +229,21 @@ Deno.serve(async (req) => {
     try {
       const update = await req.json();
 
+      // ---- Кабинет мастера: проверка Telegram Web App initData ----
+      if (update.action === 'master_list') {
+        const userId = await validateMasterInitData(update.initData);
+        if (!userId) return json({ error: 'Unauthorized' }, 401);
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' }) + 'T00:00:00+03:00';
+        const { data, error } = await supabase.from('appointments')
+          .select('id, client_name, phone, contact, service, price, status, comment, slots!inner(slot_time)')
+          .in('status', ['new', 'confirmed'])
+          .gte('slots.slot_time', today)
+          .order('slot_time', { foreignTable: 'slots', ascending: true })
+          .limit(50);
+        if (error) return json({ error: error.message }, 500);
+        return json({ appointments: data || [] });
+      }
+
       // ---- Новая заявка с сайта ----
       if (update.action === 'new_appointment') {
         if (!update.appointmentId || !/^[0-9a-f-]{36}$/i.test(update.appointmentId)) {
@@ -1238,6 +1253,29 @@ async function sendPhotos(chatId: string | number, id: string) {
 
 function escapeMarkdown(value: unknown) {
   return String(value ?? '').replace(/([_*[\]`])/g, '\\$1');
+}
+
+async function validateMasterInitData(initData: string) {
+  if (!initData) return null;
+  const params = new URLSearchParams(initData);
+  const receivedHash = params.get('hash');
+  const authDate = Number(params.get('auth_date') || 0);
+  const userJson = params.get('user');
+  if (!receivedHash || !userJson || !authDate || Date.now() / 1000 - authDate > 86400) return null;
+  const dataCheckString = [...params.entries()]
+    .filter(([key]) => key !== 'hash')
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n');
+  const encoder = new TextEncoder();
+  const secretKey = await crypto.subtle.importKey('raw', encoder.encode('WebAppData'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const secret = await crypto.subtle.sign('HMAC', secretKey, encoder.encode(BOT_TOKEN));
+  const checkKey = await crypto.subtle.importKey('raw', secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', checkKey, encoder.encode(dataCheckString)));
+  const expectedHash = [...signature].map(b => b.toString(16).padStart(2, '0')).join('');
+  if (expectedHash !== receivedHash) return null;
+  const user = JSON.parse(userJson);
+  return String(user.id) === String(MASTER_CHAT_ID) ? String(user.id) : null;
 }
 
 // Карточка + фото одним сообщением (используется после добавления фото)

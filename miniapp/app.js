@@ -41,8 +41,10 @@ const app = {
     init: async function() {
         const urlParams = new URLSearchParams(window.location.search);
         const screenParam = urlParams.get('screen') || Telegram.WebApp.initDataUnsafe?.start_param;
-        
-        if (screenParam === 'my_bookings') {
+        if (screenParam === 'master') {
+            this.showScreen('master');
+            await this.loadMasterCabinet();
+        } else if (screenParam === 'my_bookings') {
             this.showScreen('my-bookings');
             await this.loadMyBookings();
             await this.loadData();
@@ -65,6 +67,30 @@ const app = {
         }
         
         this.updateStickyFooter(screenId);
+    },
+
+    loadMasterCabinet: async function() {
+        const panel = document.getElementById('masterPanel');
+        try {
+            const response = await fetch(EDGE_FUNCTION_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
+                body: JSON.stringify({ action: 'master_list', initData: Telegram.WebApp.initData }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Доступ запрещён');
+            if (!result.appointments.length) {
+                panel.innerHTML = '<p class="slots-loading">Ближайших записей нет.</p>';
+                return;
+            }
+            panel.innerHTML = result.appointments.map(a => {
+                const slot = Array.isArray(a.slots) ? a.slots[0] : a.slots;
+                const date = new Date(slot.slot_time).toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+                return `<article class="master-booking"><strong>${date} · ${a.client_name}</strong><div>${a.service}</div><small>${a.phone} · ${a.status === 'confirmed' ? 'подтверждена' : 'новая'}</small></article>`;
+            }).join('');
+        } catch (error) {
+            panel.innerHTML = '<p class="slots-loading">Кабинет доступен только мастеру.</p>';
+        }
     },
 
     loadMyBookings: async function() {

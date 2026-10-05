@@ -443,6 +443,11 @@ h1, h2, h3 {
 }
 .app-status.error { color: #fecaca; background: rgba(127, 29, 29, .35); }
 
+.master-panel { display: grid; gap: 12px; }
+.master-booking { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; }
+.master-booking strong { display: block; margin-bottom: 6px; }
+.master-booking small { color: var(--text-muted); }
+
 /* === DETAILS SCREEN === */
 .details-section {
     background: var(--bg-card);
