@@ -246,15 +246,29 @@ const app = {
         panel.innerHTML = '<p role="status">Загружаю профиль…</p>';
         try {
             const data = await this.masterRequest('master_profile', { kind: 'get' });
-            panel.innerHTML = '<section class="details-section profile-editor"><h3>Описание</h3><form id="profileDescriptionForm"><textarea id="profileDescription" maxlength="2000" aria-label="Описание мастера"></textarea><button class="btn-primary">Сохранить описание</button></form></section><section class="details-section profile-editor"><h3>Услуги</h3><div id="profileServices"></div><form id="profileServiceForm"><label>Название<input name="name" maxlength="150" required></label><div class="profile-fields"><label>Цена от, ₽<input name="price_min" type="number" min="0" step="1" required></label><label>Цена до, ₽<input name="price_max" type="number" min="0" step="1" required></label><label>Длительность, ч<input name="duration_hours" type="number" min="0.25" max="24" step="0.25" value="3" required></label></div><button class="btn-secondary">Добавить услугу</button></form></section><section class="details-section profile-editor"><h3>Портфолио</h3><div id="profilePhotos" class="profile-photos"></div><label class="btn-secondary profile-upload">Добавить фотографию<input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><p class="master-slot-hint">JPG, PNG или WebP, до 10 МБ</p></section>';
+            panel.innerHTML = '<section class="details-section profile-editor profile-hero"><span class="eyebrow">личный кабинет</span><h3>Профиль мастера</h3><p class="profile-subtitle">Эти данные видят клиенты в mini app.</p><form id="profileDescriptionForm"><label for="profileDescription">Описание</label><textarea id="profileDescription" maxlength="2000" aria-label="Описание мастера"></textarea><div class="profile-form-footer"><span class="profile-counter" id="profileCounter">0 / 2000</span><button class="btn-primary">Сохранить</button></div></form></section><section class="details-section profile-editor"><div class="profile-section-head"><div><span class="eyebrow">витрина</span><h3>Услуги</h3></div><span class="profile-section-note">Порядок виден клиенту</span></div><div id="profileServices" class="profile-services-list"></div><form id="profileServiceForm" class="profile-add-form"><label>Новая услуга<input name="name" maxlength="150" placeholder="Например, маникюр с укреплением" required></label><div class="profile-fields"><label>Цена от, ₽<input name="price_min" type="number" min="0" step="1" required></label><label>Цена до, ₽<input name="price_max" type="number" min="0" step="1" required></label><label>Длительность, ч<input name="duration_hours" type="number" min="0.25" max="24" step="0.25" value="3" required></label></div><button class="btn-secondary">＋ Добавить услугу</button></form></section><section class="details-section profile-editor"><div class="profile-section-head"><div><span class="eyebrow">галерея</span><h3>Портфолио</h3></div><span class="profile-section-note">До 10 МБ на фото</span></div><div id="profilePhotos" class="profile-photos"></div><label class="btn-secondary profile-upload">＋ Добавить фотографию<input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><p class="master-slot-hint">JPG, PNG или WebP</p></section>';
             document.getElementById('profileDescription').value = data.profile.description;
+            const description = document.getElementById('profileDescription');
+            const counter = document.getElementById('profileCounter');
+            const updateCounter = () => { counter.textContent = `${description.value.length} / 2000`; };
+            description.oninput = updateCounter; updateCounter();
             const services = document.getElementById('profileServices');
-            data.services.forEach(service => {
+            data.services.forEach((service, index) => {
                 const row = document.createElement('div'); row.className = 'profile-service-row';
-                const text = document.createElement('span'); text.textContent = service.name + ' · ' + service.price_min + '–' + service.price_max + ' ₽';
+                const order = document.createElement('div'); order.className = 'profile-service-order';
+                const grip = document.createElement('span'); grip.className = 'profile-service-grip'; grip.textContent = '☷'; grip.setAttribute('aria-hidden', 'true');
+                const up = document.createElement('button'); up.type = 'button'; up.className = 'profile-order-btn'; up.textContent = '↑'; up.title = 'Поднять выше'; up.disabled = index === 0;
+                const down = document.createElement('button'); down.type = 'button'; down.className = 'profile-order-btn'; down.textContent = '↓'; down.title = 'Опустить ниже'; down.disabled = index === data.services.length - 1;
+                up.onclick = () => this.moveProfileService(data.services, index, -1, up);
+                down.onclick = () => this.moveProfileService(data.services, index, 1, down);
+                order.append(grip, up, down);
+                const text = document.createElement('div'); text.className = 'profile-service-copy';
+                const name = document.createElement('strong'); name.textContent = service.name;
+                const meta = document.createElement('small'); meta.textContent = `${service.price_min}–${service.price_max} ₽ · ${service.duration_hours} ч`;
+                text.append(name, meta);
                 const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-secondary'; remove.textContent = 'Убрать';
                 remove.onclick = () => this.saveProfileChange({ kind: 'remove_service', id: service.id }, remove);
-                row.append(text, remove); services.append(row);
+                row.append(order, text, remove); services.append(row);
             });
             const photos = document.getElementById('profilePhotos');
             data.photos.forEach(photo => {
@@ -293,6 +307,16 @@ const app = {
             await this.masterRequest('master_profile', values);
             await this.loadMasterProfile(); setAppStatus('Изменения сохранены');
         } catch (error) { button.disabled = false; setAppStatus(error.message, 'error'); }
+    },
+
+    moveProfileService: async function(services, index, direction, button) {
+        const next = index + direction;
+        if (next < 0 || next >= services.length) return;
+        button.disabled = true;
+        const order = services.map(service => service.id);
+        [order[index], order[next]] = [order[next], order[index]];
+        try { await this.masterRequest('master_profile', { kind: 'reorder_services', order }); await this.loadMasterProfile(); setAppStatus('Порядок услуг обновлён'); }
+        catch (error) { button.disabled = false; setAppStatus(error.message || 'Не удалось изменить порядок', 'error'); }
     },
 
     portfolioUrl: function(value) {

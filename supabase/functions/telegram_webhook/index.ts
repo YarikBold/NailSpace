@@ -244,6 +244,13 @@ Deno.serve(async (req) => {
           result = await supabase.from('services').insert({ name, price_min: min, price_max: max, duration_hours: duration, sort_order: (last?.[0]?.sort_order || 0) + 1 });
         } else if (kind === 'remove_service') {
           result = await supabase.from('services').update({ is_active: false }).eq('id', update.id);
+        } else if (kind === 'reorder_services') {
+          if (!Array.isArray(update.order) || update.order.length > 50 || update.order.some((id: unknown) => typeof id !== 'string')) return json({ error: 'Некорректный порядок услуг' }, 400);
+          const updates = update.order.map((id: string, index: number) => supabase.from('services').update({ sort_order: index }).eq('id', id).eq('is_active', true));
+          const results = await Promise.all(updates);
+          const failed = results.find(item => item.error);
+          if (failed?.error) return json({ error: failed.error.message }, 500);
+          return json({ success: true });
         } else if (kind === 'photo_upload') {
           const extensions: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
           if (!extensions[update.mime]) return json({ error: 'Поддерживаются JPG, PNG и WebP' }, 400);
