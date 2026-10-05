@@ -785,7 +785,7 @@ textarea:focus { outline: 2px solid rgba(216,184,255,.38); border-color: var(--a
 .master-detail-photo { border: 1px solid var(--border); }
 .master-photo-actions .btn-secondary { min-height: 46px; display: flex; align-items: center; justify-content: center; text-align: center; }
 .client-card { display: grid; gap: 18px; }
-.client-status-row { display: flex; justify-content: flex-end; align-items: center; min-height: 44px; padding-right: 2px; }
+.client-status-row { display: flex; justify-content: flex-start; align-items: center; min-height: 44px; padding-left: 2px; }
 .client-card-top { display: flex; align-items: flex-start; gap: 12px; padding-top: 0; }
 .client-card h2 { margin: 4px 0 0; font-family: 'Cormorant Garamond', serif; font-size: 34px; }
 .client-status { align-self: flex-end; padding: 10px 16px; border: 1px solid rgba(216,184,255,.32); border-radius: 999px; background: linear-gradient(135deg, rgba(216,184,255,.2), rgba(188,139,233,.12)); color: var(--accent); font-size: 17px; font-weight: 600; line-height: 1.2; white-space: nowrap; box-shadow: 0 6px 18px rgba(168,85,247,.14); }
