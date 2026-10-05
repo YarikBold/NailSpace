@@ -71,6 +71,7 @@ const app = {
 
     loadMasterCabinet: async function(activeSection = 'bookings') {
         const panel = document.getElementById('masterPanel');
+        document.getElementById('masterOverview').hidden = false;
         this.setMasterDrawerActive(activeSection);
         this.setMasterTitle(activeSection);
         try {
@@ -124,6 +125,7 @@ const app = {
         this.setMasterTitle(section);
         if (section === 'cash') this.loadMasterCash();
         else if (section === 'slots') this.loadMasterSlots();
+        else if (section === 'profile') this.loadMasterProfile();
         else this.loadMasterCabinet(section);
     },
 
@@ -141,7 +143,7 @@ const app = {
     setMasterTitle: function(section) {
         const title = document.getElementById('masterTitle');
         if (!title) return;
-        const labels = { upcoming: 'ближайшая запись', bookings: 'записи', cash: 'касса', slots: 'свободные окошки' };
+        const labels = { upcoming: 'ближайшая запись', bookings: 'записи', cash: 'касса', slots: 'свободные окошки', profile: 'профиль' };
         title.textContent = `Кабинет мастера — ${labels[section] || 'записи'}`;
     },
 
@@ -238,6 +240,65 @@ const app = {
         return result;
     },
 
+    loadMasterProfile: async function() {
+        const panel = document.getElementById('masterPanel');
+        document.getElementById('masterOverview').hidden = true;
+        panel.innerHTML = '<p role="status">Загружаю профиль…</p>';
+        try {
+            const data = await this.masterRequest('master_profile', { kind: 'get' });
+            panel.innerHTML = '<section class="details-section profile-editor"><h3>Описание</h3><form id="profileDescriptionForm"><textarea id="profileDescription" maxlength="2000" aria-label="Описание мастера"></textarea><button class="btn-primary">Сохранить описание</button></form></section><section class="details-section profile-editor"><h3>Услуги</h3><div id="profileServices"></div><form id="profileServiceForm"><label>Название<input name="name" maxlength="150" required></label><div class="profile-fields"><label>Цена от, ₽<input name="price_min" type="number" min="0" step="1" required></label><label>Цена до, ₽<input name="price_max" type="number" min="0" step="1" required></label><label>Длительность, ч<input name="duration_hours" type="number" min="0.25" max="24" step="0.25" value="3" required></label></div><button class="btn-secondary">Добавить услугу</button></form></section><section class="details-section profile-editor"><h3>Портфолио</h3><div id="profilePhotos" class="profile-photos"></div><label class="btn-secondary profile-upload">Добавить фотографию<input id="profilePhotoInput" type="file" accept="image/jpeg,image/png,image/webp" hidden></label><p class="master-slot-hint">JPG, PNG или WebP, до 10 МБ</p></section>';
+            document.getElementById('profileDescription').value = data.profile.description;
+            const services = document.getElementById('profileServices');
+            data.services.forEach(service => {
+                const row = document.createElement('div'); row.className = 'profile-service-row';
+                const text = document.createElement('span'); text.textContent = service.name + ' · ' + service.price_min + '–' + service.price_max + ' ₽';
+                const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-secondary'; remove.textContent = 'Убрать';
+                remove.onclick = () => this.saveProfileChange({ kind: 'remove_service', id: service.id }, remove);
+                row.append(text, remove); services.append(row);
+            });
+            const photos = document.getElementById('profilePhotos');
+            data.photos.forEach(photo => {
+                const row = document.createElement('div');
+                const image = document.createElement('img'); image.src = this.portfolioUrl(photo.file_url); image.alt = 'Работа мастера'; image.loading = 'lazy';
+                const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-secondary'; remove.textContent = 'Убрать';
+                remove.onclick = () => this.saveProfileChange({ kind: 'remove_photo', id: photo.id }, remove);
+                row.append(image, remove); photos.append(row);
+            });
+            document.getElementById('profileDescriptionForm').onsubmit = event => {
+                event.preventDefault();
+                this.saveProfileChange({ kind: 'description', description: document.getElementById('profileDescription').value }, event.target.querySelector('button'));
+            };
+            document.getElementById('profileServiceForm').onsubmit = event => {
+                event.preventDefault();
+                this.saveProfileChange({ kind: 'add_service', ...Object.fromEntries(new FormData(event.target)) }, event.target.querySelector('button'));
+            };
+            document.getElementById('profilePhotoInput').onchange = async event => {
+                const file = event.target.files[0]; if (!file) return;
+                if (file.size > 10 * 1024 * 1024) return setAppStatus('Фотография должна быть до 10 МБ', 'error');
+                event.target.disabled = true; setAppStatus('Загружаю фотографию…');
+                try {
+                    const upload = await this.masterRequest('master_profile', { kind: 'photo_upload', mime: file.type });
+                    const { error } = await sb.storage.from('photos').uploadToSignedUrl(upload.path, upload.token, file);
+                    if (error) throw error;
+                    await this.masterRequest('master_profile', { kind: 'add_photo', path: upload.path });
+                    await this.loadMasterProfile(); setAppStatus('Фотография добавлена');
+                } catch (error) { event.target.disabled = false; setAppStatus(error.message, 'error'); }
+            };
+        } catch (error) { panel.textContent = error.message; }
+    },
+
+    saveProfileChange: async function(values, button) {
+        button.disabled = true; setAppStatus('Сохраняю…');
+        try {
+            await this.masterRequest('master_profile', values);
+            await this.loadMasterProfile(); setAppStatus('Изменения сохранены');
+        } catch (error) { button.disabled = false; setAppStatus(error.message, 'error'); }
+    },
+
+    portfolioUrl: function(value) {
+        return /^https:\/\//.test(value) ? value : '../' + value;
+    },
+
     masterAction: async function(id, kind) {
         try { await this.masterRequest('master_action', { appointmentId: id, kind }); await this.loadMasterCabinet(); } catch (e) { alert(e.message); }
     },
@@ -278,6 +339,7 @@ const app = {
 
     loadMasterCash: async function() {
         const panel = document.getElementById('masterPanel');
+        document.getElementById('masterOverview').hidden = false;
         this.setMasterDrawerActive('cash');
         this.setMasterTitle('cash');
         try {
@@ -390,11 +452,14 @@ const app = {
             this.renderServices();
         }
 
+        const { data: profileData } = await sb.from('master_profile').select('description').eq('id', 1).maybeSingle();
+        if (profileData?.description) document.querySelector('.master-desc').textContent = profileData.description;
+
         // Load portfolio photos
         const { data: photoData } = await sb.from('portfolio_photos').select('*').order('sort_order');
         if (photoData) {
             const gallery = document.getElementById('portfolioGallery');
-            gallery.innerHTML = photoData.map(p => `<img src="../${p.file_url}" alt="Work" class="portfolio-img">`).join('');
+            gallery.innerHTML = photoData.map(p => `<img src="${this.portfolioUrl(p.file_url)}" alt="Работа мастера" class="portfolio-img" loading="lazy">`).join('');
         }
 
         // Load reviews stats
@@ -784,3 +849,5 @@ window.toggleMasterDrawer = function(event) {
 // Start
 window.app = app;
 app.init();
+
+

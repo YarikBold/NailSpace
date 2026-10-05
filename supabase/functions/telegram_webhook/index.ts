@@ -238,6 +238,51 @@ Deno.serve(async (req) => {
       const update = await req.json();
 
       // ---- Кабинет мастера: проверка Telegram Web App initData ----
+      if (update.action === 'master_profile') {
+        if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
+        const kind = update.kind;
+        if (kind === 'get') {
+          const [profile, services, photos] = await Promise.all([
+            supabase.from('master_profile').select('*').eq('id', 1).single(),
+            supabase.from('services').select('*').eq('is_active', true).order('sort_order'),
+            supabase.from('portfolio_photos').select('*').order('sort_order'),
+          ]);
+          const error = profile.error || services.error || photos.error;
+          if (error) return json({ error: error.message }, 500);
+          return json({ profile: profile.data, services: services.data, photos: photos.data });
+        }
+        let result;
+        if (kind === 'description') {
+          if (typeof update.description !== 'string' || update.description.length > 2000) return json({ error: 'Описание должно быть до 2000 символов' }, 400);
+          result = await supabase.from('master_profile').update({ description: update.description.trim() }).eq('id', 1);
+        } else if (kind === 'add_service') {
+          const name = String(update.name || '').trim();
+          const min = Number(update.price_min), max = Number(update.price_max), duration = Number(update.duration_hours);
+          if (!name || name.length > 150 || !Number.isInteger(min) || !Number.isInteger(max) || min < 0 || max < min || !Number.isFinite(duration) || duration <= 0 || duration > 24) return json({ error: 'Проверьте название, цены и длительность услуги' }, 400);
+          const { data: last } = await supabase.from('services').select('sort_order').order('sort_order', { ascending: false }).limit(1);
+          result = await supabase.from('services').insert({ name, price_min: min, price_max: max, duration_hours: duration, sort_order: (last?.[0]?.sort_order || 0) + 1 });
+        } else if (kind === 'remove_service') {
+          result = await supabase.from('services').update({ is_active: false }).eq('id', update.id);
+        } else if (kind === 'photo_upload') {
+          const extensions: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+          if (!extensions[update.mime]) return json({ error: 'Поддерживаются JPG, PNG и WebP' }, 400);
+          const path = 'portfolio/' + crypto.randomUUID() + '.' + extensions[update.mime];
+          const { data, error } = await supabase.storage.from('photos').createSignedUploadUrl(path);
+          if (error) return json({ error: error.message }, 500);
+          return json({ path, token: data.token });
+        } else if (kind === 'add_photo') {
+          if (!/^portfolio\/[0-9a-f-]+\.(jpg|png|webp)$/.test(update.path || '')) return json({ error: 'Invalid image path' }, 400);
+          const { data: stored, error: storageError } = await supabase.storage.from('photos').list('portfolio', { search: update.path.split('/')[1] });
+          if (storageError || !stored?.length) return json({ error: 'Сначала загрузите фотографию' }, 400);
+          const { data: url } = supabase.storage.from('photos').getPublicUrl(update.path);
+          const { data: last } = await supabase.from('portfolio_photos').select('sort_order').order('sort_order', { ascending: false }).limit(1);
+          result = await supabase.from('portfolio_photos').insert({ file_url: url.publicUrl, sort_order: (last?.[0]?.sort_order || 0) + 1 });
+        } else if (kind === 'remove_photo') {
+          result = await supabase.from('portfolio_photos').delete().eq('id', update.id);
+        } else return json({ error: 'Invalid profile action' }, 400);
+        if (result.error) return json({ error: result.error.message }, 500);
+        return json({ success: true });
+      }
       if (update.action === 'master_list') {
         const userId = await validateMasterInitData(update.initData);
         if (!userId) return json({ error: 'Unauthorized' }, 401);
