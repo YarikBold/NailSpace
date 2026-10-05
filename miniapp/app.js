@@ -72,6 +72,7 @@ const app = {
     loadMasterCabinet: async function(activeSection = 'bookings') {
         const panel = document.getElementById('masterPanel');
         this.setMasterDrawerActive(activeSection);
+        this.setMasterTitle(activeSection);
         try {
             const response = await fetch(EDGE_FUNCTION_URL, {
                 method: 'POST',
@@ -120,6 +121,7 @@ const app = {
     showMasterSection: function(section) {
         this.setMasterDrawer(false);
         this.setMasterDrawerActive(section);
+        this.setMasterTitle(section);
         if (section === 'cash') this.loadMasterCash();
         else if (section === 'slots') this.loadMasterSlots();
         else this.loadMasterCabinet(section);
@@ -134,6 +136,13 @@ const app = {
             button.setAttribute('aria-expanded', String(open));
             button.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
         }
+    },
+
+    setMasterTitle: function(section) {
+        const title = document.getElementById('masterTitle');
+        if (!title) return;
+        const labels = { upcoming: 'ближайшая запись', bookings: 'записи', cash: 'касса', slots: 'свободные окошки' };
+        title.textContent = `Кабинет мастера — ${labels[section] || 'записи'}`;
     },
 
     toggleMasterDrawer: function(event) {
@@ -270,6 +279,7 @@ const app = {
     loadMasterCash: async function() {
         const panel = document.getElementById('masterPanel');
         this.setMasterDrawerActive('cash');
+        this.setMasterTitle('cash');
         try {
             const result = await this.masterRequest('master_cash');
             panel.innerHTML = `<div class="master-booking"><strong>Общий доход: ${result.total} ₽</strong><small>Завершённых записей: ${result.rows.length}</small></div>` + result.rows.map(row => `<article class="master-booking"><strong>${row.client_name} · ${row.price} ₽</strong><div>${row.service}</div><small>${row.completed_at ? new Date(row.completed_at).toLocaleString('ru-RU') : '—'}</small></article>`).join('');

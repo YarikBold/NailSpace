@@ -158,7 +158,7 @@
         </section>
 
         <section id="screen-master" class="screen">
-            <div class="master-toolbar"><button class="master-burger" id="masterBurger" type="button" aria-label="Открыть меню" aria-expanded="false" onclick="toggleMasterDrawer(event)">☰</button><h2>Кабинет мастера</h2></div>
+            <div class="master-toolbar"><button class="master-burger" id="masterBurger" type="button" aria-label="Открыть меню" aria-expanded="false" onclick="var d=document.getElementById('masterDrawer');d.hidden=!d.hidden;this.setAttribute('aria-expanded',String(!d.hidden));this.setAttribute('aria-label',d.hidden?'Открыть меню':'Закрыть меню');return false;">☰</button><h2 id="masterTitle">Кабинет мастера — записи</h2></div>
             <div class="master-drawer" id="masterDrawer" hidden>
                 <button data-master-section="upcoming" onclick="app.showMasterSection('upcoming')">Ближайшая запись</button>
                 <button data-master-section="bookings" onclick="app.showMasterSection('bookings')">Все записи</button>
@@ -192,6 +192,6 @@
             </button>
         </div>
     </div>
-    <script src="app.js?v=4a6c2d9"></script>
+    <script src="app.js?v=7f2c4a1"></script>
 </body>
 </html>

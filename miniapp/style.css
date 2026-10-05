@@ -446,7 +446,7 @@ h1, h2, h3 {
 .master-panel { display: grid; gap: 12px; }
 .master-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .master-toolbar h2 { margin: 0; }
-.master-burger { width: 42px; height: 42px; border: 0; border-radius: 12px; background: var(--bg-card); color: var(--text-main); font-size: 24px; }
+.master-burger { width: 48px; height: 48px; min-width: 48px; border: 0; border-radius: 14px; background: var(--bg-card); color: var(--text-main); font-size: 24px; position: relative; z-index: 5; cursor: pointer; touch-action: manipulation; }
 .master-drawer { display: grid; gap: 6px; margin-bottom: 14px; padding: 10px; background: var(--bg-card); border-radius: var(--radius-md); }
 .master-drawer button { border: 0; background: transparent; color: var(--text-main); text-align: left; padding: 10px; font: inherit; }
 .master-overview { background: linear-gradient(135deg, rgba(164,90,255,.22), rgba(255,255,255,.06)); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px; }
@@ -700,6 +700,7 @@ textarea:focus { outline: 2px solid rgba(216,184,255,.38); border-color: var(--a
 .master-toolbar { padding: 4px 0 2px; }
 .master-toolbar h2 { font-family: 'Cormorant Garamond', serif; font-size: 30px; }
 .master-drawer { border: 1px solid var(--border); background: rgba(25, 21, 37, .94); box-shadow: var(--shadow-soft); padding: 8px; }
+.master-drawer[hidden] { display: none !important; }
 .master-drawer button { border-radius: 12px; min-height: 44px; }
 .master-drawer button:hover { background: rgba(216,184,255,.12); }
 .master-drawer button.active { background: linear-gradient(135deg, rgba(234,215,255,.26), rgba(188,139,233,.16)); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(216,184,255,.22); }
