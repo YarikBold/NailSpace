@@ -105,27 +105,8 @@ Deno.serve(async (req) => {
             weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
           });
           
-          // Уведомление мастеру
-          const text =
-            `⏰ *ЧЕРЕЗ ЧАС ЗАПИСЬ!*\n\n` +
-            `📅 ${t}\n` +
-            `👤 ${nearest.client_name} | 📞 ${nearest.phone}\n` +
-            (nearest.contact ? `🔗 Контакт: ${nearest.contact}\n` : '') +
-            `✨ ${nearest.service}\n` +
-            `💰 ${nearest.price} ₽ · ${statusRu(nearest.status)}\n` +
-            `📝 ${nearest.comment || '—'}`;
-          await tg('sendMessage', {
-            chat_id: MASTER_CHAT_ID,
-            text,
-            parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[
-              { text: reminderCardLabel(slotTimeValue(nearest.slots), nearest.client_name), callback_data: `view_${nearest.id}` },
-            ], [
-              { text: '✅ Подтвердить', callback_data: `confirm_${nearest.id}` },
-              { text: '❌ Отменить', callback_data: `cancel_${nearest.id}` },
-            ]] },
-          });
-          await sendPhotos(MASTER_CHAT_ID, nearest.id);
+          // Карточка и фотографии отправляются одним альбомом.
+          await sendCardWithPhotos(MASTER_CHAT_ID, nearest.id);
           
           // Напоминание клиенту
           if (nearest.chat_id) {
@@ -1151,8 +1132,8 @@ Deno.serve(async (req) => {
           await answerCallbackQuery(cb.id, '');
           const card = await buildCard(appointmentId);
           if (!card) return json({ success: true });
-          await editMessageText(chatId, messageId, card.text, card.keyboard);
-          await sendPhotos(chatId, appointmentId);
+          await sendCardWithPhotos(chatId, appointmentId);
+          await deleteMessage(chatId, messageId);
           return json({ success: true });
         }
 
@@ -1422,13 +1403,27 @@ async function validateMasterInitData(initData: string) {
 async function sendCardWithPhotos(chatId: string | number, id: string) {
   const card = await buildCard(id);
   if (!card) return;
-  await tg('sendMessage', {
+  const { data: photos } = await supabase.from('appointment_photos')
+    .select('kind, file_id').eq('appointment_id', id).order('kind');
+  const items = photos || [];
+  if (items.length === 0) {
+    await tg('sendMessage', { chat_id: chatId, text: card.text, parse_mode: 'Markdown', reply_markup: { inline_keyboard: card.keyboard } });
+    return;
+  }
+  if (items.length === 1) {
+    await tg('sendPhoto', { chat_id: chatId, photo: items[0].file_id, caption: card.text, parse_mode: 'Markdown', reply_markup: { inline_keyboard: card.keyboard } });
+    return;
+  }
+  const album = await tg('sendMediaGroup', {
     chat_id: chatId,
-    text: card.text,
-    parse_mode: 'Markdown',
-    reply_markup: { inline_keyboard: card.keyboard },
+    media: items.map((photo, index) => ({
+      type: 'photo', media: photo.file_id,
+      caption: index === 0 ? card.text : (PHOTO_CAPTIONS[photo.kind] || ''),
+      parse_mode: 'Markdown',
+    })),
   });
-  await sendPhotos(chatId, id);
+  const firstMessageId = album?.result?.[0]?.message_id;
+  if (firstMessageId) await tg('editMessageReplyMarkup', { chat_id: chatId, message_id: firstMessageId, reply_markup: { inline_keyboard: card.keyboard } });
 }
 
 // Ближайшие записи (new + confirmed)
@@ -1715,10 +1710,16 @@ async function tg(method: string, payload: unknown) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
+  const body = await res.json().catch(() => null);
+  if (!res.ok || body?.ok === false) {
     const err = await res.text().catch(() => 'unknown error');
     console.error(`Telegram API error [${method}]:`, res.status, err);
   }
+  return body;
+}
+
+async function deleteMessage(chatId: number | string, messageId: number) {
+  await tg('deleteMessage', { chat_id: chatId, message_id: messageId });
 }
 
 async function answerCallbackQuery(callbackQueryId: string, text: string) {
