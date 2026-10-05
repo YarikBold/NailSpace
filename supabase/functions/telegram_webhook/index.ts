@@ -299,6 +299,30 @@ Deno.serve(async (req) => {
         return json({ success: true, sent: true });
       }
 
+      // ---- Перенос записи из mini app ----
+      if (update.action === 'transfer_appointment') {
+        if (!update.appointmentId || !/^[0-9a-f-]{36}$/i.test(update.appointmentId)) {
+          return json({ error: 'Invalid appointmentId' }, 400);
+        }
+        const { data: appointment, error: appointmentError } = await supabase
+          .from('appointments')
+          .select('id, client_name, phone, service, slots!inner(slot_time)')
+          .eq('id', update.appointmentId)
+          .single();
+        if (appointmentError || !appointment) return json({ error: 'Appointment not found' }, 404);
+        const slotTime = new Date(slotTimeValue(appointment.slots)).toLocaleString('ru-RU', {
+          weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+          timeZone: 'Europe/Moscow',
+        });
+        await tg('sendMessage', {
+          chat_id: MASTER_CHAT_ID,
+          text: `🔄 *ЗАПИСЬ ПЕРЕНЕСЕНА КЛИЕНТОМ*\n\n👤 *Клиент:* ${escapeMarkdown(appointment.client_name)}\n📞 *Телефон:* ${escapeMarkdown(appointment.phone)}\n✨ *Услуга:* ${escapeMarkdown(appointment.service)}\n📅 *Новое время:* ${slotTime}`,
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: [[{ text: '🔍 Открыть карточку', callback_data: `view_${appointment.id}` }]] },
+        });
+        return json({ success: true, sent: true });
+      }
+
       // ---- Фото от мастера (когда функция ждёт фото) ----
       if (update.message?.photo) {
         const chatId = String(update.message.chat.id);

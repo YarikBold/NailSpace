@@ -24,7 +24,8 @@ const state = {
     currentMonth: null,
     selectedDay: null,
     selectedSlot: null,
-    photos: []
+    photos: [],
+    transferAppointment: null
 };
 
 function setAppStatus(message, type = '') {
@@ -44,6 +45,7 @@ const app = {
         if (screenParam === 'my_bookings') {
             this.showScreen('my-bookings');
             await this.loadMyBookings();
+            await this.loadData();
         } else {
             this.showScreen('services');
             await this.loadData();
@@ -105,7 +107,8 @@ const app = {
                     <div><strong>Дата:</strong> ${timeStr}</div>
                     <div><strong>Цена:</strong> ${a.price || '—'} ₽</div>
                     <div><strong>Статус:</strong> ${statusText}</div>
-                    <button class="btn-secondary" style="margin-top:12px;width:100%;background:rgba(255,255,255,0.1);color:#fff" onclick="app.cancelBooking('${a.id}')">Отменить запись</button>
+                    <button class="btn-primary" style="margin-top:12px;width:100%" onclick="app.startTransfer('${a.id}')">Перенести запись</button>
+                    <button class="btn-secondary" style="width:100%;background:rgba(255,255,255,0.1);color:#fff" onclick="app.cancelBooking('${a.id}')">Отменить запись</button>
                 </div>
             </div>
             `;
@@ -113,6 +116,16 @@ const app = {
         
         html += `<button class="btn-primary" style="margin-top:16px;width:100%" onclick="window.location.href='?screen=services'">Записаться ещё</button>`;
         list.innerHTML = html;
+    },
+
+    startTransfer: async function(id) {
+        const { data: booking, error } = await sb.from('appointments').select('id, slot_id, service, price').eq('id', id).single();
+        if (error || !booking) return alert('Не удалось открыть перенос записи.');
+        state.transferAppointment = booking;
+        state.selectedService = { name: booking.service, price_min: booking.price || 0, price_max: booking.price || 0, duration_hours: 0 };
+        state.selectedSlot = null;
+        if (!state.slots.length) await this.loadData();
+        this.showScreen('calendar');
     },
 
     cancelBooking: async function(id) {
@@ -321,9 +334,9 @@ const app = {
         else if (screenId === 'calendar') {
             if (state.selectedSlot) {
                 const d = state.selectedDay.split('-');
-                btn.textContent = `Записаться ${d[2]}.${d[1]}`;
+                btn.textContent = state.transferAppointment ? `Перенести на ${d[2]}.${d[1]}` : `Записаться ${d[2]}.${d[1]}`;
                 btn.disabled = false;
-                btn.onclick = () => this.showScreen('details');
+                btn.onclick = () => state.transferAppointment ? this.submitBooking() : this.showScreen('details');
             } else {
                 btn.textContent = 'Выберите время';
                 btn.disabled = true;
@@ -429,6 +442,31 @@ const app = {
                 btn.disabled = false;
                 this.showScreen('calendar');
                 await this.loadData();
+                return;
+            }
+
+            if (state.transferAppointment) {
+                const oldSlotId = state.transferAppointment.slot_id;
+                const { error: updateError } = await sb.from('appointments')
+                    .update({ slot_id: state.selectedSlot.id })
+                    .eq('id', state.transferAppointment.id)
+                    .eq('slot_id', oldSlotId);
+                if (updateError) {
+                    await sb.from('slots').update({ status: 'available' }).eq('id', state.selectedSlot.id);
+                    throw updateError;
+                }
+                await sb.from('slots').update({ status: 'available' }).eq('id', oldSlotId);
+                await fetch(EDGE_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
+                    body: JSON.stringify({ action: 'transfer_appointment', appointmentId: state.transferAppointment.id }),
+                });
+                state.transferAppointment = null;
+                state.selectedSlot = null;
+                alert('Запись перенесена.');
+                this.showScreen('my-bookings');
+                await this.loadMyBookings();
+                setAppStatus('');
                 return;
             }
 
