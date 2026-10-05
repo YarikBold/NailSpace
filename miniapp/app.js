@@ -739,4 +739,5 @@ const app = {
 };
 
 // Start
+window.app = app;
 app.init();
