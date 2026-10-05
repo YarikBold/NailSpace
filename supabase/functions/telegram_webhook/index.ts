@@ -55,16 +55,23 @@ Deno.serve(async (req) => {
             .order('slot_time', { foreignTable: 'slots', ascending: true });
 
           let text = `☀️ Доброе утро! Записи на сегодня (${mskDay}):\n`;
+          const keyboard: any[] = [];
           if (!list || list.length === 0) {
             text += '\n📭 Записей на сегодня нет.';
           } else {
             list.forEach((a: any, i: number) => {
-              const t = new Date(slotTimeValue(a.slots)).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+              const slotTime = slotTimeValue(a.slots);
+              const t = new Date(slotTime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
               text += `\n${i + 1}. ${t} — ${a.client_name} | ${a.phone}\n   ✨ ${a.service}`;
+              keyboard.push([{ text: reminderCardLabel(slotTime, a.client_name), callback_data: `view_${a.id}` }]);
             });
-            text += `\n\nВсего записей: ${list.length}\n📋 /journal — открыть карточки`;
+            text += `\n\nВсего записей: ${list.length}`;
           }
-          await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: text });
+          await tg('sendMessage', {
+            chat_id: MASTER_CHAT_ID,
+            text,
+            ...(keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+          });
           await supabase.from('bot_digest_log').insert({ day: mskDay });
         }
       }
@@ -95,7 +102,15 @@ Deno.serve(async (req) => {
             `✨ ${nearest.service}\n` +
             `💰 ${nearest.price} ₽ · ${statusRu(nearest.status)}\n` +
             `📝 ${nearest.comment || '—'}`;
-          await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: text, parse_mode: 'Markdown' });
+          await tg('sendMessage', {
+            chat_id: MASTER_CHAT_ID,
+            text,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [[{
+              text: reminderCardLabel(slotTimeValue(nearest.slots), nearest.client_name),
+              callback_data: `view_${nearest.id}`,
+            }]] },
+          });
           await sendPhotos(MASTER_CHAT_ID, nearest.id);
           
           // Напоминание клиенту
@@ -1086,6 +1101,14 @@ const statusRu = (s: string) =>
 
 function slotTimeValue(slots: any) {
   return Array.isArray(slots) ? slots[0]?.slot_time : slots?.slot_time;
+}
+
+function reminderCardLabel(slotTime: string, clientName: string) {
+  const date = new Date(slotTime).toLocaleString('ru-RU', {
+    weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+    timeZone: 'Europe/Moscow',
+  });
+  return Array.from(`🔍 ${date} — ${clientName}`).slice(0, 64).join('');
 }
 
 // Карточка записи: контакт, статусы фото, кнопки управления
