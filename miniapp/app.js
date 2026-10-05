@@ -86,11 +86,39 @@ const app = {
             panel.innerHTML = result.appointments.map(a => {
                 const slot = Array.isArray(a.slots) ? a.slots[0] : a.slots;
                 const date = new Date(slot.slot_time).toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
-                return `<article class="master-booking"><strong>${date} · ${a.client_name}</strong><div>${a.service}</div><small>${a.phone} · ${a.status === 'confirmed' ? 'подтверждена' : 'новая'}</small></article>`;
+                const actions = a.status === 'new'
+                    ? `<button class="btn-primary" onclick="app.masterAction('${a.id}','confirm')">Подтвердить</button>`
+                    : '';
+                return `<article class="master-booking"><strong>${date} · ${a.client_name}</strong><div>${a.service}</div><small>${a.phone} · ${a.status === 'confirmed' ? 'подтверждена' : 'новая'}</small><div class="master-actions">${actions}<button class="btn-secondary" onclick="app.masterAction('${a.id}','cancel')">Отменить</button><button class="btn-secondary" onclick="app.masterCash('${a.id}', '${a.price || 0}')">В кассу</button></div></article>`;
             }).join('');
         } catch (error) {
             panel.innerHTML = '<p class="slots-loading">Кабинет доступен только мастеру.</p>';
         }
+    },
+
+    masterRequest: async function(action, extra = {}) {
+        const response = await fetch(EDGE_FUNCTION_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY }, body: JSON.stringify({ action, initData: Telegram.WebApp.initData, ...extra }) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Ошибка кабинета');
+        return result;
+    },
+
+    masterAction: async function(id, kind) {
+        try { await this.masterRequest('master_action', { appointmentId: id, kind }); await this.loadMasterCabinet(); } catch (e) { alert(e.message); }
+    },
+
+    masterCash: async function(id, defaultAmount) {
+        const amount = prompt('Итоговая сумма:', defaultAmount);
+        if (amount === null) return;
+        try { await this.masterRequest('master_action', { appointmentId: id, kind: 'cash', amount }); await this.loadMasterCabinet(); } catch (e) { alert(e.message); }
+    },
+
+    loadMasterCash: async function() {
+        const panel = document.getElementById('masterPanel');
+        try {
+            const result = await this.masterRequest('master_cash');
+            panel.innerHTML = `<div class="master-booking"><strong>Общий доход: ${result.total} ₽</strong><small>Завершённых записей: ${result.rows.length}</small></div>` + result.rows.map(row => `<article class="master-booking"><strong>${row.client_name} · ${row.price} ₽</strong><div>${row.service}</div><small>${row.completed_at ? new Date(row.completed_at).toLocaleString('ru-RU') : '—'}</small></article>`).join('');
+        } catch (e) { panel.innerHTML = '<p class="slots-loading">Не удалось загрузить кассу.</p>'; }
     },
 
     loadMyBookings: async function() {
@@ -383,6 +411,10 @@ const app = {
     },
 
     setupEvents: function() {
+        const masterBookingsTab = document.getElementById('masterBookingsTab');
+        const masterCashTab = document.getElementById('masterCashTab');
+        if (masterBookingsTab) masterBookingsTab.addEventListener('click', () => this.loadMasterCabinet());
+        if (masterCashTab) masterCashTab.addEventListener('click', () => this.loadMasterCash());
         document.getElementById('prevMonth').addEventListener('click', () => {
             const idx = state.availableMonths.indexOf(state.currentMonth);
             if (idx > 0) this.openMonth(state.availableMonths[idx - 1]);

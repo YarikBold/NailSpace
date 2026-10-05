@@ -252,6 +252,38 @@ Deno.serve(async (req) => {
         return json({ appointments: data || [] });
       }
 
+      if (update.action === 'master_cash') {
+        if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
+        const { data, error } = await supabase.from('appointments')
+          .select('id, client_name, service, price, completed_at')
+          .eq('status', 'completed').order('completed_at', { ascending: false }).limit(200);
+        if (error) return json({ error: error.message }, 500);
+        const rows = data || [];
+        return json({ total: rows.reduce((sum, row) => sum + Number(row.price || 0), 0), rows });
+      }
+
+      if (update.action === 'master_action') {
+        if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
+        if (!update.appointmentId || !['confirm', 'cancel', 'cash'].includes(update.kind)) return json({ error: 'Invalid action' }, 400);
+        const { data: appointment } = await supabase.from('appointments')
+          .select('id, client_name, phone, service, price, status, chat_id, slot_id, slots!inner(slot_time)')
+          .eq('id', update.appointmentId).single();
+        if (!appointment) return json({ error: 'Appointment not found' }, 404);
+        if (update.kind === 'confirm') {
+          await supabase.from('appointments').update({ status: 'confirmed' }).eq('id', appointment.id);
+          if (appointment.chat_id) await tg('sendMessage', { chat_id: appointment.chat_id, text: '✅ Мастер подтвердила твою запись. До встречи! 💅' });
+        } else if (update.kind === 'cancel') {
+          await supabase.from('appointments').update({ status: 'canceled' }).eq('id', appointment.id);
+          if (appointment.slot_id) await supabase.from('slots').update({ status: 'available' }).eq('id', appointment.slot_id);
+          if (appointment.chat_id) await tg('sendMessage', { chat_id: appointment.chat_id, text: '❌ Мастер отменила запись. Выбери другое время в mini app.' });
+        } else {
+          const amount = Number(update.amount);
+          if (!Number.isFinite(amount) || amount < 0) return json({ error: 'Invalid amount' }, 400);
+          await supabase.from('appointments').update({ status: 'completed', price: amount, completed_at: new Date().toISOString() }).eq('id', appointment.id);
+        }
+        return json({ success: true });
+      }
+
       // ---- Новая заявка с сайта ----
       if (update.action === 'new_appointment') {
         if (!update.appointmentId || !/^[0-9a-f-]{36}$/i.test(update.appointmentId)) {
