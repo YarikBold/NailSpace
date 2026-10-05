@@ -369,10 +369,26 @@ const app = {
             const slot = Array.isArray(appointment.slots) ? appointment.slots[0] : appointment.slots;
             const date = new Date(slot.slot_time).toLocaleString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
             const comment = appointment.comment || '';
-            const before = (comment.match(/Фото Исходник: (https:\/\/\S+)/) || [])[1];
-            const ref = (comment.match(/Фото Референс: (https:\/\/\S+)/) || [])[1];
-            content.innerHTML = `<h2>${appointment.client_name}</h2><p><strong>${date}</strong></p><p>${appointment.phone}<br>${appointment.contact || ''}<br>${appointment.service}<br>${appointment.price || 0} ₽</p><p>${comment.replace(/Фото (Исходник|Референс): https:\/\/\S+/g, '').trim()}</p><h3>Исходник</h3>${before ? `<img class="master-detail-photo" src="${before}" alt="Исходник">` : '<p class="slots-loading">Фото нет</p>'}<div class="master-photo-actions"><label class="btn-secondary">Добавить исходник<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, \'before\', \'${id}\')"></label><label class="btn-secondary">Добавить референс<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, \'ref\', \'${id}\')"></label></div><h3>Референс</h3>${ref ? `<img class="master-detail-photo" src="${ref}" alt="Референс">` : '<p class="slots-loading">Фото нет</p>'}`;
+            const beforeUrl = (comment.match(/Фото Исходник: (https:\/\/\S+)/) || [])[1];
+            const refUrl = (comment.match(/Фото Референс: (https:\/\/\S+)/) || [])[1];
+            const photos = appointment.photos || [];
+            const beforeFile = photos.find(photo => photo.kind === 'before')?.file_id;
+            const refFile = photos.find(photo => photo.kind === 'ref')?.file_id;
+            const source = beforeUrl || (beforeFile ? '' : null);
+            const reference = refUrl || (refFile ? '' : null);
+            content.innerHTML = `<article class="client-card"><div class="client-card-top"><div><span class="eyebrow">карточка клиента</span><h2>${appointment.client_name}</h2></div><span class="client-status">${appointment.status === 'confirmed' ? 'Подтверждена' : 'Новая'}</span></div><div class="client-meta"><span>📅 ${date}</span><span>✨ ${appointment.service}</span><span>💰 ${appointment.price || 0} ₽</span><span>📞 ${appointment.phone}</span>${appointment.contact ? `<span>🔗 ${appointment.contact}</span>` : ''}</div>${comment.replace(/Фото (Исходник|Референс): https:\/\/\S+/g, '').trim() ? `<p class="client-comment">${comment.replace(/Фото (Исходник|Референс): https:\/\/\S+/g, '').trim()}</p>` : ''}<div class="client-photo-grid"><div class="client-photo-card"><div class="client-photo-label">📷 Исходник</div>${source ? `<img class="master-detail-photo" src="${source}" alt="Исходник ногтей клиента">` : beforeFile ? '<div class="master-photo-loading" id="masterPhotoBefore">Загружаю фото…</div>' : '<div class="master-photo-empty">Фото не добавлено</div>'}</div><div class="client-photo-card"><div class="client-photo-label">📸 Референс</div>${reference ? `<img class="master-detail-photo" src="${reference}" alt="Референс дизайна">` : refFile ? '<div class="master-photo-loading" id="masterPhotoRef">Загружаю фото…</div>' : '<div class="master-photo-empty">Фото не добавлено</div>'}</div></div><div class="master-photo-actions"><label class="btn-secondary">Добавить исходник<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, 'before', '${id}')"></label><label class="btn-secondary">Добавить референс<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, 'ref', '${id}')"></label></div></article>`;
+            if (beforeFile && !beforeUrl) this.loadMasterPhoto(beforeFile, 'masterPhotoBefore');
+            if (refFile && !refUrl) this.loadMasterPhoto(refFile, 'masterPhotoRef');
         } catch (e) { content.innerHTML = '<p class="slots-loading">Не удалось загрузить карточку.</p>'; }
+    },
+
+    loadMasterPhoto: async function(fileId, targetId) {
+        try {
+            const response = await fetch(EDGE_FUNCTION_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY }, body: JSON.stringify({ action: 'master_photo', initData: Telegram.WebApp.initData, fileId }) });
+            if (!response.ok) throw new Error('Фото недоступно');
+            const image = document.createElement('img'); image.className = 'master-detail-photo'; image.alt = 'Фото клиента'; image.src = URL.createObjectURL(await response.blob());
+            document.getElementById(targetId)?.replaceWith(image);
+        } catch (error) { const target = document.getElementById(targetId); if (target) target.textContent = 'Не удалось загрузить фото'; }
     },
 
     closeMasterDetail: function() { document.getElementById('masterModal').hidden = true; },

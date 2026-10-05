@@ -332,7 +332,18 @@ Deno.serve(async (req) => {
           .select('id, client_name, phone, contact, service, price, status, comment, slots!inner(slot_time)')
           .eq('id', update.appointmentId).single();
         if (error || !data) return json({ error: 'Appointment not found' }, 404);
-        return json({ appointment: data });
+        const { data: photos } = await supabase.from('appointment_photos').select('kind, file_id').eq('appointment_id', update.appointmentId);
+        return json({ appointment: { ...data, photos: photos || [] } });
+      }
+
+      if (update.action === 'master_photo') {
+        if (!await validateMasterInitData(update.initData) || typeof update.fileId !== 'string' || update.fileId.length < 5) return new Response('Unauthorized', { status: 401, headers: corsHeaders });
+        const fileInfo = await tg('getFile', { file_id: update.fileId });
+        const filePath = fileInfo?.result?.file_path;
+        if (!filePath) return new Response('Photo not found', { status: 404, headers: corsHeaders });
+        const image = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`);
+        if (!image.ok) return new Response('Photo unavailable', { status: 404, headers: corsHeaders });
+        return new Response(image.body, { headers: { ...corsHeaders, 'Content-Type': image.headers.get('content-type') || 'image/jpeg', 'Cache-Control': 'private, max-age=300' } });
       }
 
       if (update.action === 'master_add_photo') {
