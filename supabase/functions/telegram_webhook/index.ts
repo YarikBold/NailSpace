@@ -262,6 +262,26 @@ Deno.serve(async (req) => {
         return json({ total: rows.reduce((sum, row) => sum + Number(row.price || 0), 0), rows });
       }
 
+      if (update.action === 'master_detail') {
+        if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
+        const { data, error } = await supabase.from('appointments')
+          .select('id, client_name, phone, contact, service, price, status, comment, slots!inner(slot_time)')
+          .eq('id', update.appointmentId).single();
+        if (error || !data) return json({ error: 'Appointment not found' }, 404);
+        return json({ appointment: data });
+      }
+
+      if (update.action === 'master_add_photo') {
+        if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
+        if (!update.appointmentId || !['before', 'ref'].includes(update.kind) || !/^https:\/\//.test(update.url || '')) return json({ error: 'Invalid photo' }, 400);
+        const { data: appointment } = await supabase.from('appointments').select('comment').eq('id', update.appointmentId).single();
+        if (!appointment) return json({ error: 'Appointment not found' }, 404);
+        const label = update.kind === 'before' ? 'Исходник' : 'Референс';
+        const comment = String(appointment.comment || '').replace(new RegExp(`\\nФото ${label}:.*`, 'g'), '');
+        await supabase.from('appointments').update({ comment: `${comment}\nФото ${label}: ${update.url}`.trim() }).eq('id', update.appointmentId);
+        return json({ success: true });
+      }
+
       if (update.action === 'master_action') {
         if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
         if (!update.appointmentId || !['confirm', 'cancel', 'cash'].includes(update.kind)) return json({ error: 'Invalid action' }, 400);

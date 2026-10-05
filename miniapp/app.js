@@ -89,7 +89,7 @@ const app = {
                 const actions = a.status === 'new'
                     ? `<button class="btn-primary" onclick="app.masterAction('${a.id}','confirm')">Подтвердить</button>`
                     : '';
-                return `<article class="master-booking"><strong>${date} · ${a.client_name}</strong><div>${a.service}</div><small>${a.phone} · ${a.status === 'confirmed' ? 'подтверждена' : 'новая'}</small><div class="master-actions">${actions}<button class="btn-secondary" onclick="app.masterAction('${a.id}','cancel')">Отменить</button><button class="btn-secondary" onclick="app.masterCash('${a.id}', '${a.price || 0}')">В кассу</button></div></article>`;
+                return `<article class="master-booking" onclick="app.openMasterDetail('${a.id}')"><strong>${date} · ${a.client_name}</strong><div>${a.service}</div><small>${a.phone} · ${a.status === 'confirmed' ? 'подтверждена' : 'новая'}</small><div class="master-actions">${actions}<button class="btn-secondary" onclick="event.stopPropagation(); app.masterAction('${a.id}','cancel')">Отменить</button><button class="btn-secondary" onclick="event.stopPropagation(); app.masterCash('${a.id}', '${a.price || 0}')">В кассу</button></div></article>`;
             }).join('');
         } catch (error) {
             panel.innerHTML = '<p class="slots-loading">Кабинет доступен только мастеру.</p>';
@@ -111,6 +111,34 @@ const app = {
         const amount = prompt('Итоговая сумма:', defaultAmount);
         if (amount === null) return;
         try { await this.masterRequest('master_action', { appointmentId: id, kind: 'cash', amount }); await this.loadMasterCabinet(); } catch (e) { alert(e.message); }
+    },
+
+    openMasterDetail: async function(id) {
+        const modal = document.getElementById('masterModal');
+        const content = document.getElementById('masterDetailContent');
+        modal.hidden = false;
+        content.innerHTML = '<p class="slots-loading">Загружаю карточку…</p>';
+        try {
+            const { appointment } = await this.masterRequest('master_detail', { appointmentId: id });
+            const slot = Array.isArray(appointment.slots) ? appointment.slots[0] : appointment.slots;
+            const date = new Date(slot.slot_time).toLocaleString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+            const comment = appointment.comment || '';
+            const before = (comment.match(/Фото Исходник: (https:\/\/\S+)/) || [])[1];
+            const ref = (comment.match(/Фото Референс: (https:\/\/\S+)/) || [])[1];
+            content.innerHTML = `<h2>${appointment.client_name}</h2><p><strong>${date}</strong></p><p>${appointment.phone}<br>${appointment.contact || ''}<br>${appointment.service}<br>${appointment.price || 0} ₽</p><p>${comment.replace(/Фото (Исходник|Референс): https:\/\/\S+/g, '').trim()}</p><h3>Исходник</h3>${before ? `<img class="master-detail-photo" src="${before}" alt="Исходник">` : '<p class="slots-loading">Фото нет</p>'}<div class="master-photo-actions"><label class="btn-secondary">Добавить исходник<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, \'before\', \'${id}\')"></label><label class="btn-secondary">Добавить референс<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, \'ref\', \'${id}\')"></label></div><h3>Референс</h3>${ref ? `<img class="master-detail-photo" src="${ref}" alt="Референс">` : '<p class="slots-loading">Фото нет</p>'}`;
+        } catch (e) { content.innerHTML = '<p class="slots-loading">Не удалось загрузить карточку.</p>'; }
+    },
+
+    closeMasterDetail: function() { document.getElementById('masterModal').hidden = true; },
+
+    addMasterPhoto: async function(event, kind, appointmentId) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const path = `master/${appointmentId}/${kind}_${Date.now()}_${file.name.replace(/[^a-z0-9._-]/gi, '_')}`;
+        const { error } = await sb.storage.from('photos').upload(path, file, { upsert: true });
+        if (error) return alert('Не удалось загрузить фото.');
+        const { data } = sb.storage.from('photos').getPublicUrl(path);
+        try { await this.masterRequest('master_add_photo', { appointmentId, kind, url: data.publicUrl }); await this.openMasterDetail(appointmentId); } catch (e) { alert(e.message); }
     },
 
     loadMasterCash: async function() {
