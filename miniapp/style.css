@@ -719,9 +719,16 @@ textarea:focus { outline: 2px solid rgba(216,184,255,.38); border-color: var(--a
 .master-slot-editor-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .master-slot-editor-head strong { font-size: 16px; text-transform: capitalize; }
 .master-slot-editor-head span, .master-slot-hint { color: var(--text-muted); font-size: 12px; }
-.master-slot-times { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.master-slot-times .slot-pill { min-width: 0; padding: 10px 4px; }
-.master-slot-times .slot-pill:disabled { opacity: .6; cursor: default; }
+.master-slot-times { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-height: 310px; overflow-y: auto; padding: 2px; }
+.master-slot-times .slot-pill { min-width: 0; min-height: 48px; padding: 7px 4px; display: flex; flex-direction: column; gap: 2px; align-items: center; justify-content: center; }
+.master-slot-times .slot-pill small { font-size: 9px; opacity: .8; }
+.master-slot-times .slot-pill:disabled { opacity: 1; cursor: default; background: linear-gradient(135deg, rgba(234,215,255,.26), rgba(188,139,233,.16)); color: var(--accent); border-color: var(--border-accent); }
+.master-slot-times .slot-pill.is-saving { opacity: .65; }
+.master-custom-time { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.master-custom-time label { display: block; color: var(--text-muted); font-size: 12px; margin-bottom: 7px; }
+.master-custom-time > div { display: flex; gap: 8px; }
+.master-custom-time input { flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 12px; background: rgba(11,11,18,.55); color: var(--text-main); padding: 10px 12px; font: inherit; }
+.master-custom-time .btn-secondary { min-height: 42px; padding: 8px 14px; }
 .master-slot-hint { margin-top: 12px; }
 .master-overview { border: 1px solid var(--border-accent); background: linear-gradient(145deg, rgba(216,184,255,.2), rgba(104,76,142,.12)); box-shadow: var(--shadow-accent); cursor: pointer; }
 .master-booking { background: linear-gradient(145deg, rgba(255,255,255,.085), rgba(255,255,255,.045)); box-shadow: 0 12px 28px rgba(4,3,9,.2); }

@@ -266,7 +266,9 @@ Deno.serve(async (req) => {
           return json({ slots: data || [] });
         }
         if (update.kind === 'add') {
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(update.date || '') || !['09:00', '12:00', '15:00', '18:00'].includes(update.time)) {
+          const timeParts = String(update.time || '').match(/^(\d{2}):(\d{2})$/);
+          const validTime = Boolean(timeParts && Number(timeParts[1]) <= 23 && Number(timeParts[2]) <= 59);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(update.date || '') || !validTime) {
             return json({ error: 'Выберите дату и время из списка' }, 400);
           }
           const slotTime = new Date(`${update.date}T${update.time}:00+03:00`);

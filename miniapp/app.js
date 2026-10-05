@@ -198,9 +198,28 @@ const app = {
         if (!editor) return;
         const date = new Date(`${dateKey}T12:00:00`);
         const label = date.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
-        const options = ['09:00', '12:00', '15:00', '18:00'];
-        editor.innerHTML = `<div class="master-slot-editor-head"><strong>${label}</strong><span>Выберите свободные окна</span></div><div class="master-slot-times">${options.map(time => `<button type="button" class="slot-pill${existing.includes(time) ? ' selected' : ''}" data-slot-time="${time}" ${existing.includes(time) ? 'disabled' : ''}>${time}${existing.includes(time) ? ' · добавлено' : ''}</button>`).join('')}</div><p class="master-slot-hint">Окно сразу появится в календаре записи клиентов.</p>`;
-        editor.querySelectorAll('[data-slot-time]:not([disabled])').forEach(button => { button.onclick = async () => { button.disabled = true; button.textContent = 'Сохраняю…'; try { await this.masterRequest('master_slots', { kind: 'add', date: dateKey, time: button.dataset.slotTime }); await this.loadMasterSlots(); } catch (e) { button.disabled = false; button.textContent = button.dataset.slotTime; alert(e.message); } }; });
+        const options = [];
+        for (let minutes = 9 * 60; minutes <= 20 * 60; minutes += 30) options.push(`${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`);
+        editor.innerHTML = `<div class="master-slot-editor-head"><strong>${label}</strong><span>Нажмите на время, чтобы добавить свободное окно</span></div><div class="master-slot-times">${options.map(time => `<button type="button" class="slot-pill${existing.includes(time) ? ' selected is-added' : ''}" data-slot-time="${time}" ${existing.includes(time) ? 'disabled' : ''}><span>${time}</span>${existing.includes(time) ? '<small>добавлено</small>' : ''}</button>`).join('')}</div><div class="master-custom-time"><label for="masterCustomTime">Своё время</label><div><input id="masterCustomTime" type="time" step="1800" value="09:00"><button type="button" class="btn-secondary" id="masterCustomTimeAdd">Добавить</button></div></div><p class="master-slot-hint">После сохранения окно сразу появится в календаре клиентов.</p>`;
+        editor.querySelectorAll('[data-slot-time]:not([disabled])').forEach(button => { button.onclick = () => this.addMasterSlot(dateKey, button.dataset.slotTime, button); });
+        editor.querySelector('#masterCustomTimeAdd').onclick = () => this.addMasterSlot(dateKey, editor.querySelector('#masterCustomTime').value, editor.querySelector('#masterCustomTimeAdd'));
+    },
+
+    addMasterSlot: async function(dateKey, time, button) {
+        if (!/^\d{2}:\d{2}$/.test(time || '')) return alert('Выберите время');
+        const original = button.innerHTML;
+        button.disabled = true;
+        button.classList.add('is-saving');
+        button.innerHTML = 'Сохраняю…';
+        try {
+            await this.masterRequest('master_slots', { kind: 'add', date: dateKey, time });
+            await this.loadMasterSlots();
+        } catch (e) {
+            button.disabled = false;
+            button.classList.remove('is-saving');
+            button.innerHTML = original;
+            alert(e.message);
+        }
     },
 
     masterRequest: async function(action, extra = {}) {
@@ -735,6 +754,20 @@ const app = {
             btn.textContent = 'Продолжить →';
             btn.disabled = false;
         }
+    }
+};
+
+// Глобальный обработчик нужен для бургер-кнопки даже пока кабинет ещё загружает данные.
+window.toggleMasterDrawer = function(event) {
+    if (event) event.stopPropagation();
+    const drawer = document.getElementById('masterDrawer');
+    const button = document.getElementById('masterBurger');
+    if (!drawer) return;
+    const open = drawer.hidden;
+    drawer.hidden = !open;
+    if (button) {
+        button.setAttribute('aria-expanded', String(open));
+        button.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
     }
 };
 
