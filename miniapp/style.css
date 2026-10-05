@@ -781,16 +781,24 @@ textarea:focus { outline: 2px solid rgba(216,184,255,.38); border-color: var(--a
 .master-actions button { border-radius: 12px; font-size: 12px; }
 .master-modal { background: rgba(10,10,16,.96); backdrop-filter: blur(20px); padding: 18px 16px 32px; }
 .master-modal-card { background: linear-gradient(145deg, rgba(38,31,53,.9), rgba(17,17,26,.96)); border: 1px solid var(--border); border-radius: 26px; padding: 70px 18px 30px; box-shadow: var(--shadow-soft); }
-.master-modal-close { right: 14px; top: 8px; width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,.08); }
+.master-modal-close { right: 12px; top: 12px; width: 42px; height: 42px; z-index: 4; border-radius: 50%; background: rgba(255,255,255,.1); border: 1px solid var(--border); }
 .master-detail-photo { border: 1px solid var(--border); }
 .master-photo-actions .btn-secondary { min-height: 46px; display: flex; align-items: center; justify-content: center; text-align: center; }
 .client-card { display: grid; gap: 18px; }
-.client-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.client-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-top: 4px; }
 .client-card h2 { margin: 4px 0 0; font-family: 'Cormorant Garamond', serif; font-size: 34px; }
 .client-status { padding: 7px 10px; border-radius: 999px; background: rgba(216,184,255,.14); color: var(--accent); font-size: 11px; white-space: nowrap; }
 .client-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.client-meta span { padding: 10px; border: 1px solid var(--border); border-radius: 12px; color: var(--text-muted); font-size: 12px; background: rgba(255,255,255,.035); }
-.client-meta b { display: block; margin-bottom: 4px; color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.client-meta span { display: grid; grid-template-columns: 24px 1fr; column-gap: 8px; align-items: center; min-height: 66px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 15px; color: var(--text-muted); font-size: 12px; background: linear-gradient(145deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); }
+.client-meta b { grid-column: 2; display: block; color: var(--accent); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.client-meta em { grid-column: 2; display: block; color: var(--text-main); font-size: 12px; font-style: normal; line-height: 1.25; overflow-wrap: anywhere; }
+.client-meta-icon { grid-column: 1; grid-row: 1 / span 2; width: 22px; height: 22px; display: grid; place-items: center; border: 1px solid rgba(216,184,255,.42); border-radius: 8px; color: var(--accent); font-size: 14px; font-style: normal; }
+.client-meta-icon::before { content: '•'; }
+.icon-calendar::before { content: '◷'; }
+.icon-service::before { content: '✦'; }
+.icon-money::before { content: '₽'; font-size: 12px; }
+.icon-phone::before { content: '⌕'; }
+.icon-contact::before { content: '@'; font-size: 12px; }
 .client-comment { padding: 12px; border-left: 2px solid var(--accent); color: var(--text-muted); font-size: 13px; line-height: 1.5; }
 .client-photo-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .client-photo-card { padding: 9px; border: 1px solid var(--border); border-radius: 16px; background: rgba(255,255,255,.035); }
