@@ -444,6 +444,13 @@ h1, h2, h3 {
 .app-status.error { color: #fecaca; background: rgba(127, 29, 29, .35); }
 
 .master-panel { display: grid; gap: 12px; }
+.master-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.master-toolbar h2 { margin: 0; }
+.master-burger { width: 42px; height: 42px; border: 0; border-radius: 12px; background: var(--bg-card); color: var(--text-main); font-size: 24px; }
+.master-drawer { display: grid; gap: 6px; margin-bottom: 14px; padding: 10px; background: var(--bg-card); border-radius: var(--radius-md); }
+.master-drawer button { border: 0; background: transparent; color: var(--text-main); text-align: left; padding: 10px; font: inherit; }
+.master-overview { background: linear-gradient(135deg, rgba(164,90,255,.22), rgba(255,255,255,.06)); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 16px; }
+.master-overview strong { display: block; font-size: 18px; margin-bottom: 6px; }
 .master-tabs { display: flex; gap: 8px; margin: 12px 0 16px; }
 .master-tabs button { flex: 1; }
 .master-booking { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; }

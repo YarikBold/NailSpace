@@ -83,6 +83,7 @@ const app = {
                 panel.innerHTML = '<p class="slots-loading">Ближайших записей нет.</p>';
                 return;
             }
+            this.renderMasterOverview(result.appointments);
             panel.innerHTML = result.appointments.map(a => {
                 const slot = Array.isArray(a.slots) ? a.slots[0] : a.slots;
                 const date = new Date(slot.slot_time).toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
@@ -94,6 +95,31 @@ const app = {
         } catch (error) {
             panel.innerHTML = '<p class="slots-loading">Кабинет доступен только мастеру.</p>';
         }
+    },
+
+    renderMasterOverview: function(appointments) {
+        const overview = document.getElementById('masterOverview');
+        if (!overview) return;
+        const now = Date.now();
+        const rows = appointments.map(a => {
+            const slot = Array.isArray(a.slots) ? a.slots[0] : a.slots;
+            return { ...a, time: new Date(slot.slot_time).getTime() };
+        }).sort((a, b) => a.time - b.time);
+        const current = rows.find(a => a.time <= now && a.time + 3 * 60 * 60 * 1000 > now);
+        const next = rows.find(a => a.time > now);
+        const item = current || next;
+        if (!item) { overview.innerHTML = ''; return; }
+        const label = current ? 'Сейчас идёт запись' : 'Ближайшая запись';
+        const date = new Date(item.time).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
+        const remaining = Math.max(0, item.time - now);
+        const left = current ? 'идёт сейчас' : `через ${Math.floor(remaining / 3600000)} ч ${Math.floor((remaining % 3600000) / 60000)} мин`;
+        overview.innerHTML = `<div class="master-overview" onclick="app.openMasterDetail('${item.id}')"><strong>${label}</strong><div>${date} · ${item.client_name}</div><small>${item.service} · ${left}</small></div>`;
+    },
+
+    showMasterSection: function(section) {
+        document.getElementById('masterDrawer').hidden = true;
+        if (section === 'cash') this.loadMasterCash();
+        else this.loadMasterCabinet();
     },
 
     masterRequest: async function(action, extra = {}) {
@@ -439,6 +465,8 @@ const app = {
     },
 
     setupEvents: function() {
+        const masterBurger = document.getElementById('masterBurger');
+        if (masterBurger) masterBurger.addEventListener('click', () => { const drawer = document.getElementById('masterDrawer'); drawer.hidden = !drawer.hidden; });
         const masterBookingsTab = document.getElementById('masterBookingsTab');
         const masterCashTab = document.getElementById('masterCashTab');
         if (masterBookingsTab) masterBookingsTab.addEventListener('click', () => this.loadMasterCabinet());

@@ -158,7 +158,13 @@
         </section>
 
         <section id="screen-master" class="screen">
-            <div class="screen-header"><h2>Кабинет мастера</h2></div>
+            <div class="master-toolbar"><button class="master-burger" id="masterBurger">☰</button><h2>Кабинет мастера</h2></div>
+            <div class="master-drawer" id="masterDrawer" hidden>
+                <button onclick="app.showMasterSection('upcoming')">Ближайшая запись</button>
+                <button onclick="app.showMasterSection('bookings')">Все записи</button>
+                <button onclick="app.showMasterSection('cash')">Касса</button>
+            </div>
+            <div id="masterOverview"></div>
             <div class="master-tabs">
                 <button class="btn-primary" id="masterBookingsTab">Записи</button>
                 <button class="btn-secondary" id="masterCashTab">Касса</button>
