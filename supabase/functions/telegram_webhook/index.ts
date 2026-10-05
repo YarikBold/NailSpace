@@ -190,6 +190,14 @@ Deno.serve(async (req) => {
           web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/' }
         }
       });
+      await tg('setChatMenuButton', {
+        chat_id: Number(MASTER_CHAT_ID),
+        menu_button: {
+          type: 'web_app',
+          text: 'Кабинет мастера',
+          web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/?screen=master' }
+        }
+      });
 
       // Для мастера — полный набор команд
       await tg('setMyCommands', {
@@ -490,6 +498,10 @@ Deno.serve(async (req) => {
             text: '👋 Бот NailSpace\n\n📋 /journal — ближайшие записи\n📋 /journal_all — все заказы\n' +
                   '📅 /slots — управление окошками\n⚡ /slots_week — добавить на неделю\n' +
                   '💰 /cashbox_day · /cashbox_week · /cashbox_month · /cashbox_all',
+            reply_markup: { inline_keyboard: [[{
+              text: '👑 Кабинет мастера',
+              web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/?screen=master' },
+            }]] },
           });
           return json({ success: true });
         }
