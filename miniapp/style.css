@@ -638,8 +638,10 @@ textarea {
 html { background: var(--bg-deep); }
 body {
     background:
-        radial-gradient(circle at 8% -4%, rgba(184, 133, 230, .22), transparent 34%),
-        radial-gradient(circle at 100% 18%, rgba(113, 93, 168, .13), transparent 28%),
+        radial-gradient(ellipse at 0% 0%, rgba(126, 58, 180, .28), transparent 34%),
+        radial-gradient(ellipse at 100% 15%, rgba(154, 92, 210, .22), transparent 32%),
+        radial-gradient(ellipse at 0% 100%, rgba(126, 58, 180, .18), transparent 30%),
+        radial-gradient(ellipse at 100% 100%, rgba(154, 92, 210, .14), transparent 28%),
         var(--bg-main);
     background-attachment: fixed;
 }
@@ -651,9 +653,9 @@ body {
     margin: 0 -16px;
     padding: 34px 24px 32px;
     border-radius: 0 0 34px 34px;
-    background: linear-gradient(145deg, rgba(74, 58, 103, .96), rgba(31, 25, 49, .98) 58%, rgba(18, 18, 29, .98));
-    border-bottom: 1px solid rgba(238, 217, 255, .22);
-    box-shadow: var(--shadow-soft);
+    background: linear-gradient(180deg, rgba(20, 12, 36, .88), rgba(18, 14, 29, .95));
+    border-bottom: 1px solid rgba(190, 110, 255, .58);
+    box-shadow: 0 0 10px rgba(168, 85, 247, .2), 0 24px 50px rgba(8, 3, 18, .3);
     overflow: hidden;
 }
 .master-header::after {

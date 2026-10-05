@@ -272,8 +272,6 @@ Deno.serve(async (req) => {
           return json({ path, token: data.token });
         } else if (kind === 'add_photo') {
           if (!/^portfolio\/[0-9a-f-]+\.(jpg|png|webp)$/.test(update.path || '')) return json({ error: 'Invalid image path' }, 400);
-          const { data: stored, error: storageError } = await supabase.storage.from('photos').list('portfolio', { search: update.path.split('/')[1] });
-          if (storageError || !stored?.length) return json({ error: 'Сначала загрузите фотографию' }, 400);
           const { data: url } = supabase.storage.from('photos').getPublicUrl(update.path);
           const { data: last } = await supabase.from('portfolio_photos').select('sort_order').order('sort_order', { ascending: false }).limit(1);
           result = await supabase.from('portfolio_photos').insert({ file_url: url.publicUrl, sort_order: (last?.[0]?.sort_order || 0) + 1 });

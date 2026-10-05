@@ -282,7 +282,7 @@ const app = {
                     if (error) throw error;
                     await this.masterRequest('master_profile', { kind: 'add_photo', path: upload.path });
                     await this.loadMasterProfile(); setAppStatus('Фотография добавлена');
-                } catch (error) { event.target.disabled = false; setAppStatus(error.message, 'error'); }
+                } catch (error) { event.target.disabled = false; setAppStatus(error.message === 'The related resource does not exist' ? 'Не найдено хранилище фотографий. Повтори загрузку через несколько секунд.' : (error.message || 'Не удалось добавить фотографию'), 'error'); }
             };
         } catch (error) { panel.textContent = error.message; }
     },
