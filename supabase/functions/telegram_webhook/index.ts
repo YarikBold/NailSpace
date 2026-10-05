@@ -64,6 +64,10 @@ Deno.serve(async (req) => {
               const t = new Date(slotTime).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
               text += `\n${i + 1}. ${t} — ${a.client_name} | ${a.phone}\n   ✨ ${a.service}`;
               keyboard.push([{ text: reminderCardLabel(slotTime, a.client_name), callback_data: `view_${a.id}` }]);
+              keyboard.push([
+                { text: '✅ Подтвердить', callback_data: `confirm_${a.id}` },
+                { text: '❌ Отменить', callback_data: `cancel_${a.id}` },
+              ]);
             });
             text += `\n\nВсего записей: ${list.length}`;
           }
@@ -89,6 +93,14 @@ Deno.serve(async (req) => {
 
       if (nearestList) {
         for (const nearest of nearestList) {
+          const { data: claimedReminder } = await supabase
+            .from('appointments')
+            .update({ reminder_sent: true })
+            .eq('id', nearest.id)
+            .eq('reminder_sent', false)
+            .select('id');
+          if (!claimedReminder || claimedReminder.length === 0) continue;
+
           const t = new Date(slotTimeValue(nearest.slots)).toLocaleString('ru-RU', {
             weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
           });
@@ -106,10 +118,12 @@ Deno.serve(async (req) => {
             chat_id: MASTER_CHAT_ID,
             text,
             parse_mode: 'Markdown',
-            reply_markup: { inline_keyboard: [[{
-              text: reminderCardLabel(slotTimeValue(nearest.slots), nearest.client_name),
-              callback_data: `view_${nearest.id}`,
-            }]] },
+            reply_markup: { inline_keyboard: [[
+              { text: reminderCardLabel(slotTimeValue(nearest.slots), nearest.client_name), callback_data: `view_${nearest.id}` },
+            ], [
+              { text: '✅ Подтвердить', callback_data: `confirm_${nearest.id}` },
+              { text: '❌ Отменить', callback_data: `cancel_${nearest.id}` },
+            ]] },
           });
           await sendPhotos(MASTER_CHAT_ID, nearest.id);
           
@@ -123,7 +137,6 @@ Deno.serve(async (req) => {
           }
           
           
-          await supabase.from('appointments').update({ reminder_sent: true }).eq('id', nearest.id);
         }
       }
 

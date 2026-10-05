@@ -27,6 +27,14 @@ const state = {
     photos: []
 };
 
+function setAppStatus(message, type = '') {
+    const el = document.getElementById('appStatus');
+    if (!el) return;
+    el.textContent = message || '';
+    el.className = `app-status${type ? ' ' + type : ''}`;
+    el.hidden = !message;
+}
+
 // App Logic
 const app = {
     init: async function() {
@@ -137,8 +145,13 @@ const app = {
     },
 
     loadData: async function() {
+        setAppStatus('Загружаю услуги и свободные окошки…');
         // Load services
-        const { data: srvData } = await sb.from('services').select('*').eq('is_active', true).order('sort_order');
+        const { data: srvData, error: servicesError } = await sb.from('services').select('*').eq('is_active', true).order('sort_order');
+        if (servicesError) {
+            setAppStatus('Не удалось загрузить данные. Проверь соединение и попробуй ещё раз.', 'error');
+            return;
+        }
         if (srvData) {
             state.services = srvData;
             document.getElementById('servicesCount').textContent = srvData.length;
@@ -175,6 +188,7 @@ const app = {
                 this.openMonth(state.availableMonths[0]);
             }
         }
+        setAppStatus('');
     },
 
     renderServices: function() {
@@ -398,6 +412,7 @@ const app = {
         const btn = document.getElementById('footerActionBtn');
         btn.textContent = 'Отправляем...';
         btn.disabled = true;
+        setAppStatus('Создаю запись…');
 
         try {
             // Claim slot
@@ -410,6 +425,7 @@ const app = {
                 
             if (claimError || !claimed || claimed.length === 0) {
                 alert('Увы, это окошко только что заняли — выбери другое.');
+                setAppStatus('Окошко уже заняли. Выбери другое.', 'error');
                 btn.disabled = false;
                 this.showScreen('calendar');
                 await this.loadData();
@@ -478,6 +494,7 @@ const app = {
 
             // Show success screen
             this.showScreen('success');
+            setAppStatus('');
             document.getElementById('successDateTime').textContent = `${dayRu} · ${timeStr}`;
             document.getElementById('successService').textContent = `${state.selectedService.name} · ${state.selectedService.price_min}${state.selectedService.price_max > state.selectedService.price_min ? ' - ' + state.selectedService.price_max : ''} ₽ · ${state.selectedService.duration_hours} ч`;
 
@@ -486,6 +503,7 @@ const app = {
 
         } catch (err) {
             alert(err.message || 'Ошибка записи');
+            setAppStatus('Не удалось создать запись. Попробуй ещё раз.', 'error');
             btn.textContent = 'Продолжить →';
             btn.disabled = false;
         }
