@@ -41,7 +41,7 @@ const app = {
     init: async function() {
         const urlParams = new URLSearchParams(window.location.search);
         const screenParam = urlParams.get('screen') || Telegram.WebApp.initDataUnsafe?.start_param;
-        if (screenParam === 'master') {
+      if (screenParam === 'master') {
             this.showScreen('master');
             await this.loadMasterCabinet();
         } else if (screenParam === 'my_bookings') {
@@ -118,10 +118,28 @@ const app = {
     },
 
     showMasterSection: function(section) {
-        document.getElementById('masterDrawer').hidden = true;
+        this.setMasterDrawer(false);
         this.setMasterDrawerActive(section);
         if (section === 'cash') this.loadMasterCash();
+        else if (section === 'slots') this.loadMasterSlots();
         else this.loadMasterCabinet(section);
+    },
+
+    setMasterDrawer: function(open) {
+        const drawer = document.getElementById('masterDrawer');
+        const button = document.getElementById('masterBurger');
+        if (!drawer) return;
+        drawer.hidden = !open;
+        if (button) {
+            button.setAttribute('aria-expanded', String(open));
+            button.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
+        }
+    },
+
+    toggleMasterDrawer: function(event) {
+        if (event) event.stopPropagation();
+        const drawer = document.getElementById('masterDrawer');
+        this.setMasterDrawer(Boolean(drawer && drawer.hidden));
     },
 
     setMasterDrawerActive: function(section) {
@@ -131,6 +149,58 @@ const app = {
             if (active) button.setAttribute('aria-current', 'page');
             else button.removeAttribute('aria-current');
         });
+    },
+
+    loadMasterSlots: async function() {
+        const panel = document.getElementById('masterPanel');
+        if (!panel) return;
+        panel.innerHTML = '<p class="slots-loading">Загружаю свободные окна…</p>';
+        try {
+            const result = await this.masterRequest('master_slots', { kind: 'list' });
+            this.renderMasterSlots(result.slots || []);
+        } catch (e) {
+            panel.innerHTML = '<p class="slots-loading">Не удалось загрузить окна.</p>';
+        }
+    },
+
+    renderMasterSlots: function(rows) {
+        const panel = document.getElementById('masterPanel');
+        const grouped = {};
+        rows.forEach(row => {
+            const d = new Date(row.slot_time);
+            const key = d.toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
+            (grouped[key] ||= []).push(d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' }));
+        });
+        const today = new Date();
+        let month = new Date(today.getFullYear(), today.getMonth(), 1);
+        const render = () => {
+            const year = month.getFullYear();
+            const monthIndex = month.getMonth();
+            const firstDay = (new Date(year, monthIndex, 1).getDay() + 6) % 7;
+            const days = new Date(year, monthIndex + 1, 0).getDate();
+            const monthLabel = month.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+            const cells = Array(firstDay).fill('<span class="master-slot-day is-empty"></span>');
+            for (let day = 1; day <= days; day += 1) {
+                const key = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const hasSlots = Boolean(grouped[key]?.length);
+                cells.push(`<button class="master-slot-day${hasSlots ? ' has-slots' : ''}" data-slot-date="${key}" type="button">${day}</button>`);
+            }
+            panel.innerHTML = `<section class="master-slot-manager"><div class="master-slot-manager-head"><div><span class="eyebrow">свободные окна</span><h3>Добавить время</h3></div><div class="master-slot-month-nav"><button type="button" data-slot-prev aria-label="Предыдущий месяц">‹</button><strong>${monthLabel}</strong><button type="button" data-slot-next aria-label="Следующий месяц">›</button></div></div><div class="master-slot-weekdays"><span>пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span>сб</span><span>вс</span></div><div class="master-slot-calendar">${cells.join('')}</div><div class="master-slot-editor" id="masterSlotEditor"><p>Выберите день в календаре</p></div></section>`;
+            panel.querySelector('[data-slot-prev]').onclick = () => { month = new Date(year, monthIndex - 1, 1); render(); };
+            panel.querySelector('[data-slot-next]').onclick = () => { month = new Date(year, monthIndex + 1, 1); render(); };
+            panel.querySelectorAll('[data-slot-date]').forEach(button => { button.onclick = () => this.renderMasterSlotEditor(button.dataset.slotDate, grouped[button.dataset.slotDate] || []); });
+        };
+        render();
+    },
+
+    renderMasterSlotEditor: function(dateKey, existing) {
+        const editor = document.getElementById('masterSlotEditor');
+        if (!editor) return;
+        const date = new Date(`${dateKey}T12:00:00`);
+        const label = date.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+        const options = ['09:00', '12:00', '15:00', '18:00'];
+        editor.innerHTML = `<div class="master-slot-editor-head"><strong>${label}</strong><span>Выберите свободные окна</span></div><div class="master-slot-times">${options.map(time => `<button type="button" class="slot-pill${existing.includes(time) ? ' selected' : ''}" data-slot-time="${time}" ${existing.includes(time) ? 'disabled' : ''}>${time}${existing.includes(time) ? ' · добавлено' : ''}</button>`).join('')}</div><p class="master-slot-hint">Окно сразу появится в календаре записи клиентов.</p>`;
+        editor.querySelectorAll('[data-slot-time]:not([disabled])').forEach(button => { button.onclick = async () => { button.disabled = true; button.textContent = 'Сохраняю…'; try { await this.masterRequest('master_slots', { kind: 'add', date: dateKey, time: button.dataset.slotTime }); await this.loadMasterSlots(); } catch (e) { button.disabled = false; button.textContent = button.dataset.slotTime; alert(e.message); } }; });
     },
 
     masterRequest: async function(action, extra = {}) {
@@ -477,8 +547,6 @@ const app = {
     },
 
     setupEvents: function() {
-        const masterBurger = document.getElementById('masterBurger');
-        if (masterBurger) masterBurger.addEventListener('click', () => { const drawer = document.getElementById('masterDrawer'); drawer.hidden = !drawer.hidden; });
         document.getElementById('prevMonth').addEventListener('click', () => {
             const idx = state.availableMonths.indexOf(state.currentMonth);
             if (idx > 0) this.openMonth(state.availableMonths[idx - 1]);

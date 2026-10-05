@@ -252,6 +252,37 @@ Deno.serve(async (req) => {
         return json({ appointments: data || [] });
       }
 
+      if (update.action === 'master_slots') {
+        if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
+        if (update.kind === 'list') {
+          const from = new Date().toISOString();
+          const { data, error } = await supabase.from('slots')
+            .select('id, slot_time, status')
+            .eq('status', 'available')
+            .gte('slot_time', from)
+            .order('slot_time', { ascending: true })
+            .limit(1000);
+          if (error) return json({ error: error.message }, 500);
+          return json({ slots: data || [] });
+        }
+        if (update.kind === 'add') {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(update.date || '') || !['09:00', '12:00', '15:00', '18:00'].includes(update.time)) {
+            return json({ error: 'Выберите дату и время из списка' }, 400);
+          }
+          const slotTime = new Date(`${update.date}T${update.time}:00+03:00`);
+          if (Number.isNaN(slotTime.getTime()) || slotTime.getTime() <= Date.now()) return json({ error: 'Нельзя добавить прошедшее окно' }, 400);
+          const iso = slotTime.toISOString();
+          const { data: existing, error: findError } = await supabase.from('slots').select('id, status').eq('slot_time', iso).maybeSingle();
+          if (findError) return json({ error: findError.message }, 500);
+          if (existing?.status === 'available') return json({ success: true, alreadyExists: true });
+          if (existing) return json({ error: 'Это время уже занято' }, 409);
+          const { error } = await supabase.from('slots').insert({ slot_time: iso, status: 'available' });
+          if (error) return json({ error: error.message }, 500);
+          return json({ success: true });
+        }
+        return json({ error: 'Invalid slots action' }, 400);
+      }
+
       if (update.action === 'master_cash') {
         if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
         const { data, error } = await supabase.from('appointments')

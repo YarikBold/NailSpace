@@ -158,11 +158,12 @@
         </section>
 
         <section id="screen-master" class="screen">
-            <div class="master-toolbar"><button class="master-burger" id="masterBurger">☰</button><h2>Кабинет мастера</h2></div>
+            <div class="master-toolbar"><button class="master-burger" id="masterBurger" type="button" aria-label="Открыть меню" aria-expanded="false" onclick="app.toggleMasterDrawer(event)">☰</button><h2>Кабинет мастера</h2></div>
             <div class="master-drawer" id="masterDrawer" hidden>
                 <button data-master-section="upcoming" onclick="app.showMasterSection('upcoming')">Ближайшая запись</button>
                 <button data-master-section="bookings" onclick="app.showMasterSection('bookings')">Все записи</button>
                 <button data-master-section="cash" onclick="app.showMasterSection('cash')">Касса</button>
+                <button data-master-section="slots" onclick="app.showMasterSection('slots')">Свободные окна</button>
             </div>
             <div id="masterOverview"></div>
             <div class="master-panel" id="masterPanel">

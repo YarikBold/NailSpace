@@ -703,6 +703,26 @@ textarea:focus { outline: 2px solid rgba(216,184,255,.38); border-color: var(--a
 .master-drawer button { border-radius: 12px; min-height: 44px; }
 .master-drawer button:hover { background: rgba(216,184,255,.12); }
 .master-drawer button.active { background: linear-gradient(135deg, rgba(234,215,255,.26), rgba(188,139,233,.16)); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(216,184,255,.22); }
+.master-slot-manager { padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: linear-gradient(145deg, rgba(255,255,255,.085), rgba(255,255,255,.045)); box-shadow: var(--shadow-soft); }
+.master-slot-manager-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 18px; }
+.master-slot-manager h3 { margin: 4px 0 0; font-family: 'Cormorant Garamond', serif; font-size: 28px; }
+.eyebrow { color: var(--accent); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.master-slot-month-nav { display: flex; align-items: center; gap: 8px; color: var(--text-main); }
+.master-slot-month-nav strong { min-width: 116px; text-align: center; text-transform: capitalize; font-size: 13px; }
+.master-slot-month-nav button { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 50%; background: rgba(255,255,255,.06); color: var(--accent); font-size: 22px; line-height: 1; }
+.master-slot-weekdays, .master-slot-calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; text-align: center; }
+.master-slot-weekdays { color: var(--text-muted); font-size: 11px; margin-bottom: 8px; }
+.master-slot-day { aspect-ratio: 1; border: 1px solid transparent; border-radius: 50%; background: rgba(255,255,255,.045); color: var(--text-main); font: inherit; cursor: pointer; }
+.master-slot-day:hover, .master-slot-day.has-slots { border-color: var(--border-accent); background: rgba(216,184,255,.14); }
+.master-slot-day.is-empty { visibility: hidden; }
+.master-slot-editor { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.master-slot-editor-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.master-slot-editor-head strong { font-size: 16px; text-transform: capitalize; }
+.master-slot-editor-head span, .master-slot-hint { color: var(--text-muted); font-size: 12px; }
+.master-slot-times { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.master-slot-times .slot-pill { min-width: 0; padding: 10px 4px; }
+.master-slot-times .slot-pill:disabled { opacity: .6; cursor: default; }
+.master-slot-hint { margin-top: 12px; }
 .master-overview { border: 1px solid var(--border-accent); background: linear-gradient(145deg, rgba(216,184,255,.2), rgba(104,76,142,.12)); box-shadow: var(--shadow-accent); cursor: pointer; }
 .master-booking { background: linear-gradient(145deg, rgba(255,255,255,.085), rgba(255,255,255,.045)); box-shadow: 0 12px 28px rgba(4,3,9,.2); }
 .master-actions button { border-radius: 12px; font-size: 12px; }
