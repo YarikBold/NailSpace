@@ -69,8 +69,9 @@ const app = {
         this.updateStickyFooter(screenId);
     },
 
-    loadMasterCabinet: async function() {
+    loadMasterCabinet: async function(activeSection = 'bookings') {
         const panel = document.getElementById('masterPanel');
+        this.setMasterDrawerActive(activeSection);
         try {
             const response = await fetch(EDGE_FUNCTION_URL, {
                 method: 'POST',
@@ -118,8 +119,18 @@ const app = {
 
     showMasterSection: function(section) {
         document.getElementById('masterDrawer').hidden = true;
+        this.setMasterDrawerActive(section);
         if (section === 'cash') this.loadMasterCash();
-        else this.loadMasterCabinet();
+        else this.loadMasterCabinet(section);
+    },
+
+    setMasterDrawerActive: function(section) {
+        document.querySelectorAll('[data-master-section]').forEach(button => {
+            const active = button.dataset.masterSection === section;
+            button.classList.toggle('active', active);
+            if (active) button.setAttribute('aria-current', 'page');
+            else button.removeAttribute('aria-current');
+        });
     },
 
     masterRequest: async function(action, extra = {}) {
@@ -169,6 +180,7 @@ const app = {
 
     loadMasterCash: async function() {
         const panel = document.getElementById('masterPanel');
+        this.setMasterDrawerActive('cash');
         try {
             const result = await this.masterRequest('master_cash');
             panel.innerHTML = `<div class="master-booking"><strong>Общий доход: ${result.total} ₽</strong><small>Завершённых записей: ${result.rows.length}</small></div>` + result.rows.map(row => `<article class="master-booking"><strong>${row.client_name} · ${row.price} ₽</strong><div>${row.service}</div><small>${row.completed_at ? new Date(row.completed_at).toLocaleString('ru-RU') : '—'}</small></article>`).join('');
@@ -467,10 +479,6 @@ const app = {
     setupEvents: function() {
         const masterBurger = document.getElementById('masterBurger');
         if (masterBurger) masterBurger.addEventListener('click', () => { const drawer = document.getElementById('masterDrawer'); drawer.hidden = !drawer.hidden; });
-        const masterBookingsTab = document.getElementById('masterBookingsTab');
-        const masterCashTab = document.getElementById('masterCashTab');
-        if (masterBookingsTab) masterBookingsTab.addEventListener('click', () => this.loadMasterCabinet());
-        if (masterCashTab) masterCashTab.addEventListener('click', () => this.loadMasterCash());
         document.getElementById('prevMonth').addEventListener('click', () => {
             const idx = state.availableMonths.indexOf(state.currentMonth);
             if (idx > 0) this.openMonth(state.availableMonths[idx - 1]);

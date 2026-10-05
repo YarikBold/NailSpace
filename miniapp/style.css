@@ -702,6 +702,7 @@ textarea:focus { outline: 2px solid rgba(216,184,255,.38); border-color: var(--a
 .master-drawer { border: 1px solid var(--border); background: rgba(25, 21, 37, .94); box-shadow: var(--shadow-soft); padding: 8px; }
 .master-drawer button { border-radius: 12px; min-height: 44px; }
 .master-drawer button:hover { background: rgba(216,184,255,.12); }
+.master-drawer button.active { background: linear-gradient(135deg, rgba(234,215,255,.26), rgba(188,139,233,.16)); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(216,184,255,.22); }
 .master-overview { border: 1px solid var(--border-accent); background: linear-gradient(145deg, rgba(216,184,255,.2), rgba(104,76,142,.12)); box-shadow: var(--shadow-accent); cursor: pointer; }
 .master-booking { background: linear-gradient(145deg, rgba(255,255,255,.085), rgba(255,255,255,.045)); box-shadow: 0 12px 28px rgba(4,3,9,.2); }
 .master-actions button { border-radius: 12px; font-size: 12px; }
