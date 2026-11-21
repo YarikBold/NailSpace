@@ -1,7 +1,7 @@
 import { BOT_TOKEN, MASTER_CHAT_ID, TG, corsHeaders, json, sameSecret, supabase, tg, validateMasterInitData } from './telegram.ts';
 import {
-  ADDRESS, approvePayment, bookingApi, cancelBooking, confirmAttendance, expireHolds, formatMoscow,
-  paymentSettings, remindTomorrow, reserveBooking, retryPaymentNotices, sendPaymentMessage,
+  approvePayment, bookingApi, cancelBooking, confirmAttendance, expireHolds, formatMoscow,
+  paymentSettings, remindTomorrow, reserveBooking, retryPaymentNotices, sendPaymentMessage, sendVisitReminder,
   publishReview, requestReview, reviewEligibility, reviewPhoto, submitPayment,
 } from './booking.ts';
 
@@ -107,22 +107,9 @@ Deno.serve(async (req) => {
             .select('id');
           if (!claimedReminder || claimedReminder.length === 0) continue;
 
-          const t = new Date(slotTimeValue(nearest.slots)).toLocaleString('ru-RU', {
-            weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
-          });
-          
           // Карточка и фотографии отправляются одним альбомом.
           await sendCardWithPhotos(MASTER_CHAT_ID, nearest.id);
-          
-          // Напоминание клиенту
-          if (nearest.chat_id) {
-            await tg('sendMessage', {
-               chat_id: nearest.chat_id,
-               text: `🔔 Напоминание!\nЧерез час у тебя запись на маникюр:\n\n✨ Услуга: ${nearest.service}\n📅 Время: ${t}${nearest.status === 'confirmed' && ADDRESS ? '\n📍 ' + ADDRESS : ''}\n\nЖдём тебя!`,
-            });
-          }
-          
-          
+          if (nearest.chat_id) await sendVisitReminder(nearest, 'hour');
         }
       }
 
