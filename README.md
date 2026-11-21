@@ -5,12 +5,14 @@
 ## 🚀 Возможности
 
 - **Онлайн-запись** — клиент выбирает услугу (radio-таблетки), дополнительный дизайн, свободное окошко из Supabase и оставляет комментарий
-- **Динамические слоты** — свободные окошки подгружаются из таблицы `slots`, при записи слот атомарно бронируется (защита от двойной брони)
+- **Динамические слоты** — сайт и Telegram занимают окошки через одну транзакцию в Supabase.
 - **Маска телефона** `+7 (XXX) XXX-XX-XX` с авто-конвертацией при вставке из буфера (`89001234567` → `+7 (900) 123-45-67`)
 - **Авторасчёт стоимости** — плашка с ориентировочной ценой (услуги + дизайн)
 - **Telegram CRM** — мастер получает уведомление о новой записи с инлайн-кнопками: Подтвердить / Занести в кассу
 - **Журнал в боте** — `/journal` (ближайшие записи, отмена/удаление/касса), `/journal_all` (все заказы), `/cashbox_day|week|month|all` (выручка)
-- **Напоминания клиенту-мастеру** за час до подтверждённой записи (cron)
+- **Напоминания** — накануне визита бот присылает карту, детали визита в таблице и кнопку «Я приду». За час приходит повторное напоминание.
+- **Предоплата в Telegram** — окошко удерживается 30 минут. После «Я перевела» мастер получает заявку в боте и в разделе «Предоплаты» кабинета. Подтверждение завершает запись. Отмена, отказ или истечение срока перевода освобождают окошко.
+- **Отзывы** — после визита бот просит оценку, текст и по желанию фото. В мини‑приложении можно оставить оценку и текст из «Моих записей». В профиле отзывы фильтруются по оценке и услуге, доступны сортировки.
 
 ## 🛠 Технологии
 
@@ -33,33 +35,55 @@
 
 ## ⚙️ Настройка Supabase
 
-1. Создать таблицы `slots`, `appointments`, view `cashbox`, таблицу `bot_pending_cash` (см. SQL ниже)
-2. Включить RLS с политиками: anon → `SELECT` на slots, `INSERT` на appointments, `UPDATE` slots (только available→booked)
-3. Создать Edge Function `telegram_webhook` из файла `supabase/functions/telegram_webhook/index.ts`
-4. Установить секреты:
+Обновление рассчитано на существующий проект NailSpace. Сначала примените `20261121102132_booking_prepayment_and_reviews.sql` и обновите Edge Function. После публикации новых файлов GitHub Pages примените `20261121114203_disable_legacy_booking_writes.sql`. Новая версия сайта и мини‑приложения меняет записи через Edge Function.
+
+### Секреты Supabase Edge Function
+
+Существующие `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` остаются в настройках проекта. Добавьте через Supabase Dashboard следующие значения:
+
+| Имя | Значение |
+| --- | --- |
+| `NAILSPACE_ADDRESS` | Город, улица и дом |
+| `NAILSPACE_LATITUDE`, `NAILSPACE_LONGITUDE` | Координаты дома для карты в Telegram |
+| `NAILSPACE_ENTRANCE`, `NAILSPACE_FLOOR`, `NAILSPACE_APARTMENT`, `NAILSPACE_INTERCOM` | Детали входа в отдельные поля, можно пропускать |
+| `NAILSPACE_PREPAYMENT_AMOUNT` | Сумма предоплаты в рублях |
+| `NAILSPACE_PAYMENT_DETAILS` | Телефон или номер карты для перевода |
+| `NAILSPACE_PAYMENT_RECIPIENT` | Имя получателя, по желанию |
+| `NAILSPACE_PAYMENT_BANK` | Название банка |
+| `TELEGRAM_WEBHOOK_SECRET` | Случайная строка из букв, цифр, дефисов и подчёркиваний |
+| `NAILSPACE_CRON_SECRET` | Отдельная случайная строка для расписания. При включении передайте её в заголовке `x-cron-secret` |
+
+Примените миграцию через SQL Editor или CLI. При применении через CLI сначала проверьте список миграций связанного проекта, чтобы запуск обновления случайно не выполнил старые миграции. Опубликуйте функцию с отключённой проверкой JWT на шлюзе, поскольку запросы Telegram проверяются внутри функции. CLI пример:
 
 ```bash
-supabase secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... NOTIFY_SECRET=...
+supabase functions deploy telegram_webhook --project-ref <PROJECT_REF> --no-verify-jwt
 ```
 
-(`SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` внедряются автоматически)
-
-5. Привязать Telegram-вебхук:
+При регистрации вебхука передайте в Telegram тот же секрет, что в `TELEGRAM_WEBHOOK_SECRET`:
 
 ```bash
-curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<PROJECT_REF>.supabase.co/functions/v1/telegram_webhook"
+curl -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
+  --data-urlencode "url=https://${PROJECT_REF}.supabase.co/functions/v1/telegram_webhook" \
+  --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
 ```
 
-6. Настроить крон для напоминаний (например, cron-job.org, каждые 30 минут):
+Крон вызывает этот адрес каждые 5 минут. В Supabase Cron храните значение заголовка `x-cron-secret` в Vault:
+
 ```
 GET https://<PROJECT_REF>.supabase.co/functions/v1/telegram_webhook?check_reminders=1
 ```
 
+Команда мастера `/payments` доступна после обновления вебхука. Чтобы она появилась и в меню команд, вызовите `?setup_commands=1` на том же адресе с заголовком `x-cron-secret`.
+
+Обычная форма сайта сохраняет запись через ту же базу, с ручным подтверждением мастером. Сценарий перевода и адресные напоминания доступны клиенткам, записавшимся через Telegram.
+
 ## 🔒 Безопасность
 
-- В фронтенде используется только publishable-ключ Supabase (защищено RLS-политиками)
-- Токен Telegram-бота хранится в секретах Edge Function
-- Команды журнала и кассы отвечают только в чате мастера (`TELEGRAM_CHAT_ID`)
+- Личность клиента и мастера в мини‑приложении проверяется по подписи Telegram `initData`.
+- Адрес и реквизиты хранятся в секретах Edge Function. Адрес приходит в личные сообщения клиентке с подтверждённым визитом.
+- Публичный список отзывов содержит оценку, текст, дату, услугу и фото отзыва. Отзывы, которые раньше сохранились без разрешения на публикацию, клиентки могут опубликовать из «Моих записей».
+
+Знак Альфа‑Банка взят из [официальной коллекции Alfa Laboratory](https://github.com/alfa-laboratory/alfa-ui-primitives/blob/ecb9e24eb4d279be1968db5a609c5a53abc86d1b/icons/brand/icon_logo-alfabank-square_xl_color.svg).
 
 ## 📄 Лицензия
 

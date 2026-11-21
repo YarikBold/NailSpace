@@ -16,7 +16,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;1,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="style.css?v=client-card-7">
+    <link rel="stylesheet" href="style.css?v=booking-2">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -39,11 +39,12 @@
                 </a>
             </div>
             
-            <div class="master-rating" id="masterRating">
-                <span class="rating-star">★</span>
-                <span class="rating-val">5.0</span>
-                <span class="rating-count">1 оценка</span>
-            </div>
+            <button type="button" class="master-rating" id="masterRating" onclick="app.openReviews()">
+                <span class="rating-star" aria-hidden="true">★</span>
+                <span class="rating-val" id="ratingAverage"></span>
+                <span class="rating-count" id="ratingCount">Отзывы</span>
+                <span aria-hidden="true">›</span>
+            </button>
             
             <p class="master-desc">
                 Всем привет, я начинающий мастер маникюра, принимаю на дому, готова вам доставить комфортную атмосферу и красивые новые ноготочки
@@ -70,7 +71,7 @@
         <!-- Экран 2: Календарь и Слоты -->
         <section id="screen-calendar" class="screen">
             <div class="screen-header">
-                <button class="back-btn" onclick="app.showScreen('services')">
+                <button class="back-btn" onclick="app.leaveCalendar()">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
                 </button>
                 <h2>Дата и время</h2>
@@ -111,7 +112,7 @@
             
             <div class="details-section">
                 <label>Для мастера</label>
-                <textarea id="bookingComment" placeholder="Например: хочу аккуратный градиент, без резких линий"></textarea>
+                <textarea id="bookingComment" maxlength="1000" placeholder="Например: хочу аккуратный градиент, без резких линий"></textarea>
             </div>
             
             <div class="details-section">
@@ -128,21 +129,79 @@
             </div>
         </section>
 
-        <!-- Экран 4: Успех -->
-        <section id="screen-success" class="screen" style="text-align:center; padding-top:40px;">
-            <div style="width: 80px; height: 80px; background: rgba(164, 90, 255, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                </svg>
+        <section id="screen-payment" class="screen">
+            <div class="screen-header">
+                <button type="button" class="back-btn" onclick="app.openMyBookings()" aria-label="К моим записям">‹</button>
+                <h2 id="paymentTitle">Предоплата</h2>
             </div>
-            <h2 style="margin-bottom:16px;">Ура, вы записаны!</h2>
-            <div style="background:var(--bg-card); border-radius:var(--radius-lg); padding:20px; text-align:left; margin-bottom:24px;">
-                <p style="margin-bottom:12px; color:var(--text-muted)">Ваша запись отправлена мастеру на подтверждение. Ожидайте уведомление.</p>
-                <div style="margin-bottom:8px;"><strong>Услуга:</strong> <span id="successService"></span></div>
-                <div><strong>Дата и время:</strong> <span id="successDateTime"></span></div>
+            <div class="flow-card">
+                <h3 id="paymentService"></h3>
+                <p id="paymentTime"></p>
+                <p id="paymentStatus" role="status"></p>
+                <div id="paymentDetails">
+                    <div class="payment-transfer">
+                        <div class="payment-bank-row">
+                            <img id="paymentBankLogo" class="payment-bank-logo" src="alfa-bank.svg" alt="" hidden width="36" height="36">
+                            <div class="payment-bank-name">
+                                <strong id="paymentBank"></strong>
+                                <span>Перевод по телефону</span>
+                            </div>
+                            <div class="payment-total" id="paymentAmount"></div>
+                        </div>
+                        <div class="payment-copy">
+                            <input id="paymentNumber" aria-label="Телефон для перевода" readonly>
+                            <button type="button" class="btn-secondary" onclick="app.copyPayment()">Скопировать</button>
+                        </div>
+                        <p id="paymentRecipient" class="flow-note" hidden></p>
+                    </div>
+                    <p class="flow-note">Переведите указанную сумму и нажмите «Я перевела».</p>
+                    <p class="flow-note" id="paymentCopyStatus" role="status"></p>
+                    <button type="button" class="btn-primary flow-wide" id="paymentSend" onclick="app.submitPayment()">Я перевела</button>
+                </div>
+                <button type="button" class="btn-secondary flow-wide" id="paymentCancel" onclick="app.cancelCurrentPayment()">Отменить и освободить время</button>
             </div>
-            <button class="btn-primary" style="width:100%" onclick="Telegram.WebApp.close()">Супер, спасибо!</button>
+        </section>
+
+        <section id="screen-reviews" class="screen">
+            <div class="screen-header">
+                <button type="button" class="back-btn" onclick="app.closeReviews()" aria-label="Назад к профилю">‹</button>
+                <h2>Отзывы</h2>
+            </div>
+            <div class="review-summary">
+                <span id="reviewsSummary"></span>
+                <button type="button" class="btn-secondary" onclick="app.openMyBookings()">Оставить отзыв</button>
+            </div>
+            <div class="review-filters">
+                <label>Оценка<select id="reviewRatingFilter" onchange="app.loadReviews()"><option value="">Все</option><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></label>
+                <label>Услуга<select id="reviewServiceFilter" onchange="app.loadReviews()"><option value="">Все</option></select></label>
+                <label>Порядок<select id="reviewSort" onchange="app.loadReviews()"><option value="newest">Сначала новые</option><option value="highest">Выше оценка</option><option value="lowest">Ниже оценка</option></select></label>
+            </div>
+            <div id="reviewsList" class="review-list" aria-live="polite"></div>
+            <button type="button" class="btn-secondary flow-wide" id="moreReviews" onclick="app.loadReviews(true)" hidden>Показать ещё</button>
+        </section>
+
+        <section id="screen-write-review" class="screen">
+            <div class="screen-header">
+                <button type="button" class="back-btn" onclick="app.openMyBookings()" aria-label="К моим записям">‹</button>
+                <h2>Оставить отзыв</h2>
+            </div>
+            <form class="flow-card" id="reviewForm">
+                <h3 id="reviewService"></h3>
+                <p id="reviewTime"></p>
+                <fieldset class="review-stars">
+                    <legend>Оценка за визит</legend>
+                    <label><input type="radio" name="rating" value="1" required><span>1 ★</span></label>
+                    <label><input type="radio" name="rating" value="2"><span>2 ★</span></label>
+                    <label><input type="radio" name="rating" value="3"><span>3 ★</span></label>
+                    <label><input type="radio" name="rating" value="4"><span>4 ★</span></label>
+                    <label><input type="radio" name="rating" value="5"><span>5 ★</span></label>
+                </fieldset>
+                <label for="reviewText">Отзыв</label>
+                <textarea name="text" id="reviewText" maxlength="1200" placeholder="Расскажите, как прошёл визит"></textarea>
+                <p class="flow-note">Оценка и текст появятся в профиле студии без вашего имени.</p>
+                <button type="submit" class="btn-primary flow-wide">Опубликовать отзыв</button>
+                <p id="reviewFormStatus" role="status"></p>
+            </form>
         </section>
 
         <!-- Экран 5: Мои Записи -->
@@ -162,6 +221,7 @@
             <div class="master-drawer" id="masterDrawer" hidden>
                 <button data-master-section="upcoming" onclick="app.showMasterSection('upcoming')">Ближайшая запись</button>
                 <button data-master-section="bookings" onclick="app.showMasterSection('bookings')">Все записи</button>
+                <button data-master-section="payments" onclick="app.showMasterSection('payments')">Предоплаты</button>
                 <button data-master-section="cash" onclick="app.showMasterSection('cash')">Касса</button>
                 <button data-master-section="slots" onclick="app.showMasterSection('slots')">Свободные окна</button>
                 <button data-master-section="profile" onclick="app.showMasterSection('profile')">Профиль</button>
@@ -193,6 +253,6 @@
             </button>
         </div>
     </div>
-    <script src="app.js?v=client-card-7"></script>
+    <script src="app.js?v=booking-2"></script>
 </body>
 </html>
