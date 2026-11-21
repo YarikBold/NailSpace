@@ -572,7 +572,7 @@ const app = {
         recipient.textContent = payment.recipient ? 'Получатель: ' + payment.recipient : '';
         recipient.hidden = !payment.recipient;
         document.getElementById('paymentBank').textContent = payment.bank;
-        document.getElementById('paymentBankLogo').hidden = !/^альфа[\s‑-]?банк$/i.test(payment.bank);
+        document.getElementById('paymentBankLogo').hidden = payment.bankCode !== 'alfa-bank';
         document.getElementById('paymentNumber').value = payment.details;
         const tick = () => {
             const remaining = Math.ceil((Date.parse(booking.payment_expires_at) - Date.now()) / 1000);
