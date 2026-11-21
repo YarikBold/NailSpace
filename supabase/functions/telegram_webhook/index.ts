@@ -1,18 +1,12 @@
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { BOT_TOKEN, MASTER_CHAT_ID, TG, corsHeaders, json, sameSecret, supabase, tg, validateMasterInitData } from './telegram.ts';
+import {
+  ADDRESS, approvePayment, bookingApi, cancelBooking, confirmAttendance, expireHolds, formatMoscow,
+  paymentMessage, paymentSettings, remindTomorrow, reserveBooking, retryPaymentNotices,
+  publishReview, requestReview, reviewEligibility, reviewPhoto, submitPayment,
+} from './booking.ts';
 
-// Все значения — из секретов (supabase secrets set ...)
-const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!; // внедряется автоматически
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!; // внедряется автоматически
-const MASTER_CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID')!;
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-const TG = `https://api.telegram.org/bot${BOT_TOKEN}`;
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+const WEBHOOK_SECRET = Deno.env.get('TELEGRAM_WEBHOOK_SECRET');
+const CRON_SECRET = Deno.env.get('NAILSPACE_CRON_SECRET');
 
 const PHOTO_CAPTIONS: Record<string, string> = {
   before: '📷 Исходник ногтей клиента',
@@ -32,10 +26,22 @@ const SLOT_TIMES = ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const url = new URL(req.url);
+  if (req.method === 'GET' && url.searchParams.has('review_photo')) {
+    return await reviewPhoto(url.searchParams.get('review_photo') || '');
+  }
+  if (req.method === 'GET' && ['setup_commands', 'check_webhook'].some(key => url.searchParams.has(key))
+    && !sameSecret(CRON_SECRET, req.headers.get('x-cron-secret'))) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
 
   // ================= КРОН (каждые 30 мин) =================
   if (req.method === 'GET' && url.searchParams.has('check_reminders')) {
+    if (CRON_SECRET && !sameSecret(CRON_SECRET, req.headers.get('x-cron-secret'))) {
+      return json({ error: 'Unauthorized' }, 401);
+    }
     try {
+      const scheduled = await Promise.allSettled([expireHolds(), remindTomorrow(), retryPaymentNotices()]);
+      for (const result of scheduled) if (result.status === 'rejected') console.error('Scheduled booking task failed', result.reason);
       // --- 1. Утренний дайджест: полный список записей на сегодня (в 09:xx по МСК, один раз) ---
       const mskNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Moscow' }));
       const mskHour = mskNow.getHours();
@@ -112,8 +118,7 @@ Deno.serve(async (req) => {
           if (nearest.chat_id) {
             await tg('sendMessage', {
                chat_id: nearest.chat_id,
-               text: `🔔 *Напоминание!*\nЧерез час у тебя запись на маникюр:\n\n✨ Услуга: ${nearest.service}\n📅 Время: ${t}\n\nЖдем тебя!`,
-               parse_mode: 'Markdown'
+               text: `🔔 Напоминание!\nЧерез час у тебя запись на маникюр:\n\n✨ Услуга: ${nearest.service}\n📅 Время: ${t}${nearest.status === 'confirmed' && ADDRESS ? '\n📍 ' + ADDRESS : ''}\n\nЖдём тебя!`,
             });
           }
           
@@ -121,32 +126,13 @@ Deno.serve(async (req) => {
         }
       }
 
-      // --- 3. Триггер отзывов (спустя 3 часа после начала) ---
-      const reviewThresholdIso = new Date(Date.now() - 3 * 60 * 60000).toISOString();
+      // Запрашиваем отзыв после визита, если его ещё не просили при закрытии в кассе.
       const { data: forReview } = await supabase.from('appointments')
-        .select('id, chat_id, slots!inner ( slot_time )')
-        .eq('status', 'confirmed')
-        .is('review_requested_at', null)
-        .not('chat_id', 'is', null)
-        .lte('slots.slot_time', reviewThresholdIso)
-        .order('slot_time', { foreignTable: 'slots', ascending: true });
-        
-      if (forReview) {
-         for (const app of forReview) {
-            await supabase.from('appointments').update({ review_requested_at: new Date().toISOString() }).eq('id', app.id);
-            await tg('sendMessage', {
-               chat_id: app.chat_id,
-               text: `👋 Привет! Надеюсь, тебе всё понравилось.\nОцени, пожалуйста, как прошла запись от 1 до 5:`,
-               reply_markup: { inline_keyboard: [[
-                 { text: '1⭐️', callback_data: `creview_star_1_${app.id}` },
-                 { text: '2⭐️', callback_data: `creview_star_2_${app.id}` },
-                 { text: '3⭐️', callback_data: `creview_star_3_${app.id}` },
-                 { text: '4⭐️', callback_data: `creview_star_4_${app.id}` },
-                 { text: '5⭐️', callback_data: `creview_star_5_${app.id}` }
-               ]] }
-            });
-         }
-      }
+        .select('id, chat_id, slots!inner(slot_time)').in('status', ['confirmed', 'completed'])
+        .is('review_requested_at', null).is('review_published_at', null).not('chat_id', 'is', null)
+        .lte('slots.slot_time', new Date(Date.now() - 3 * 3_600_000).toISOString())
+        .order('slots(slot_time)', { ascending: false }).limit(25);
+      for (const app of forReview || []) await sendReviewRequest(app.id, app.chat_id);
 
       return json({ success: true });
     } catch (err: any) {
@@ -184,6 +170,7 @@ Deno.serve(async (req) => {
       await tg('setMyCommands', {
         commands: [
           { command: 'start', description: 'Перезапустить бот' },
+          { command: 'payments', description: 'Предоплаты на проверке' },
           { command: 'journal', description: 'Ближайшие записи' },
           { command: 'journal_all', description: 'Все заказы (ближайшие + завершённые)' },
           { command: 'slots', description: 'Управление окошками' },
@@ -217,6 +204,13 @@ Deno.serve(async (req) => {
   if (req.method === 'POST') {
     try {
       const update = await req.json();
+      if (!update || typeof update !== 'object') return json({ error: 'Invalid request' }, 400);
+      if (update.action) {
+        const bookingResponse = await bookingApi(update);
+        if (bookingResponse) return bookingResponse;
+      } else if (!sameSecret(WEBHOOK_SECRET, req.headers.get('x-telegram-bot-api-secret-token'))) {
+        return json({ error: 'Unauthorized' }, 401);
+      }
 
       // ---- Кабинет мастера: проверка Telegram Web App initData ----
       if (update.action === 'master_profile') {
@@ -273,11 +267,12 @@ Deno.serve(async (req) => {
         const userId = await validateMasterInitData(update.initData);
         if (!userId) return json({ error: 'Unauthorized' }, 401);
         const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' }) + 'T00:00:00+03:00';
-        const { data, error } = await supabase.from('appointments')
-          .select('id, client_name, phone, contact, service, price, status, comment, slots!inner(slot_time)')
-          .in('status', ['new', 'confirmed'])
-          .gte('slots.slot_time', today)
-          .order('slot_time', { foreignTable: 'slots', ascending: true })
+        const query = supabase.from('appointments')
+          .select('id, client_name, phone, contact, service, price, status, comment, prepayment_amount, payment_submitted_at, attendance_confirmed_at, slots!inner(slot_time)');
+        const { data, error } = await (update.kind === 'payments'
+          ? query.eq('status', 'payment_review')
+          : query.in('status', ['new', 'confirmed']).gte('slots.slot_time', today))
+          .order('slots(slot_time)')
           .limit(50);
         if (error) return json({ error: error.message }, 500);
         return json({ appointments: data || [] });
@@ -329,7 +324,7 @@ Deno.serve(async (req) => {
       if (update.action === 'master_detail') {
         if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
         const { data, error } = await supabase.from('appointments')
-          .select('id, client_name, phone, contact, service, price, status, comment, slots!inner(slot_time)')
+          .select('id, client_name, phone, contact, service, price, status, comment, prepayment_amount, payment_submitted_at, attendance_confirmed_at, slots!inner(slot_time)')
           .eq('id', update.appointmentId).single();
         if (error || !data) return json({ error: 'Appointment not found' }, 404);
         const { data: photos } = await supabase.from('appointment_photos').select('kind, file_id').eq('appointment_id', update.appointmentId);
@@ -359,119 +354,25 @@ Deno.serve(async (req) => {
 
       if (update.action === 'master_action') {
         if (!await validateMasterInitData(update.initData)) return json({ error: 'Unauthorized' }, 401);
-        if (!update.appointmentId || !['confirm', 'cancel', 'cash'].includes(update.kind)) return json({ error: 'Invalid action' }, 400);
-        const { data: appointment } = await supabase.from('appointments')
-          .select('id, client_name, phone, service, price, status, chat_id, slot_id, slots!inner(slot_time)')
-          .eq('id', update.appointmentId).single();
-        if (!appointment) return json({ error: 'Appointment not found' }, 404);
-        if (update.kind === 'confirm') {
-          await supabase.from('appointments').update({ status: 'confirmed' }).eq('id', appointment.id);
-          if (appointment.chat_id) await tg('sendMessage', { chat_id: appointment.chat_id, text: '✅ Мастер подтвердила твою запись. До встречи! 💅' });
-        } else if (update.kind === 'cancel') {
-          await supabase.from('appointments').update({ status: 'canceled' }).eq('id', appointment.id);
-          if (appointment.slot_id) await supabase.from('slots').update({ status: 'available' }).eq('id', appointment.slot_id);
-          if (appointment.chat_id) await tg('sendMessage', { chat_id: appointment.chat_id, text: '❌ Мастер отменила запись. Выбери другое время в mini app.' });
-        } else {
-          const amount = Number(update.amount);
-          if (!Number.isFinite(amount) || amount < 0) return json({ error: 'Invalid amount' }, 400);
-          await supabase.from('appointments').update({ status: 'completed', price: amount, completed_at: new Date().toISOString() }).eq('id', appointment.id);
+        const id = update.appointmentId;
+        if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return json({ error: 'Запись не найдена.' }, 404);
+        let changed;
+        switch (update.kind) {
+          case 'approve_payment': changed = await approvePayment(id); break;
+          case 'reject_payment': changed = await cancelBooking(id, undefined, true); break;
+          case 'confirm': changed = await confirmBooking(id); break;
+          case 'cancel': changed = await cancelBooking(id); break;
+          case 'cash': {
+            const amount = Number(update.amount);
+            if (!Number.isFinite(amount) || amount < 0) return json({ error: 'Проверьте сумму.' }, 400);
+            changed = await completeBooking(id, amount);
+            break;
+          }
+          default: return json({ error: 'Invalid action' }, 400);
         }
-        return json({ success: true });
+        return changed ? json({ success: true }) : json({ error: 'Запись уже обработана или действие недоступно.' }, 409);
       }
-
-      // ---- Новая заявка с сайта ----
-      if (update.action === 'new_appointment') {
-        if (!update.appointmentId || !/^[0-9a-f-]{36}$/i.test(update.appointmentId)) {
-          return json({ error: 'Invalid appointmentId' }, 400);
-        }
-        const { data: appointment, error: appointmentError } = await supabase
-          .from('appointments')
-          .select('id, client_name, phone, contact, service, price, comment, slots!inner(slot_time)')
-          .eq('id', update.appointmentId)
-          .single();
-        if (appointmentError || !appointment) {
-          return json({ error: 'Appointment not found' }, 404);
-        }
-        const slotTime = new Date(slotTimeValue(appointment.slots)).toLocaleString('ru-RU', {
-          weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-          timeZone: 'Europe/Moscow',
-        });
-        const text =
-          `💅 *НОВАЯ ЗАПИСЬ В NAILSPACE*\n\n` +
-          `👤 *Клиент:* ${appointment.client_name}\n` +
-          `📞 *Телефон:* ${appointment.phone}\n` +
-          `🔗 Контакт: ${appointment.contact || '—'}\n` +
-          `✨ *Услуга:* ${appointment.service}\n` +
-          `📅 *Время:* ${slotTime}\n` +
-          `💰 *Стоимость:* ${appointment.price} ₽\n` +
-          `📝 *Комментарий:* ${appointment.comment || '—'}`;
-
-        await tg('sendMessage', {
-          chat_id: MASTER_CHAT_ID,
-          text: text,
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '✅ Подтвердить', callback_data: `confirm_${appointment.id}` },
-                { text: '💰 В кассу', callback_data: `cash_${appointment.id}` }
-              ],
-              [
-                { text: '❌ Отменить', callback_data: `cancel_${appointment.id}` }
-              ]
-            ],
-          },
-        });
-        return json({ success: true, sent: true });
-      }
-
-      // ---- Отмена записи из mini app ----
-      if (update.action === 'cancel_appointment') {
-        if (!update.appointmentId || !/^[0-9a-f-]{36}$/i.test(update.appointmentId)) {
-          return json({ error: 'Invalid appointmentId' }, 400);
-        }
-        const { data: appointment, error: appointmentError } = await supabase
-          .from('appointments')
-          .select('id, client_name, phone, service, status, slots!inner(slot_time)')
-          .eq('id', update.appointmentId)
-          .single();
-        if (appointmentError || !appointment) return json({ error: 'Appointment not found' }, 404);
-
-        const slotTime = new Date(slotTimeValue(appointment.slots)).toLocaleString('ru-RU', {
-          weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-          timeZone: 'Europe/Moscow',
-        });
-        await tg('sendMessage', {
-          chat_id: MASTER_CHAT_ID,
-          text: `❌ *ЗАПИСЬ ОТМЕНЕНА КЛИЕНТОМ*\n\n👤 *Клиент:* ${appointment.client_name}\n📞 *Телефон:* ${appointment.phone}\n✨ *Услуга:* ${appointment.service}\n📅 *Время:* ${slotTime}`,
-          parse_mode: 'Markdown',
-        });
-        return json({ success: true, sent: true });
-      }
-
-      // ---- Перенос записи из mini app ----
-      if (update.action === 'transfer_appointment') {
-        if (!update.appointmentId || !/^[0-9a-f-]{36}$/i.test(update.appointmentId)) {
-          return json({ error: 'Invalid appointmentId' }, 400);
-        }
-        const { data: appointment, error: appointmentError } = await supabase
-          .from('appointments')
-          .select('id, client_name, phone, service, slots!inner(slot_time)')
-          .eq('id', update.appointmentId)
-          .single();
-        if (appointmentError || !appointment) return json({ error: 'Appointment not found' }, 404);
-        const slotTime = new Date(slotTimeValue(appointment.slots)).toLocaleString('ru-RU', {
-          weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
-          timeZone: 'Europe/Moscow',
-        });
-        await tg('sendMessage', {
-          chat_id: MASTER_CHAT_ID,
-          text: `🔄 *ЗАПИСЬ ПЕРЕНЕСЕНА КЛИЕНТОМ*\n\n👤 *Клиент:* ${escapeMarkdown(appointment.client_name)}\n📞 *Телефон:* ${escapeMarkdown(appointment.phone)}\n✨ *Услуга:* ${escapeMarkdown(appointment.service)}\n📅 *Новое время:* ${slotTime}`,
-          parse_mode: 'Markdown',
-          reply_markup: { inline_keyboard: [[{ text: '🔍 Открыть карточку', callback_data: `view_${appointment.id}` }]] },
-        });
-        return json({ success: true, sent: true });
-      }
+      if (update.action) return json({ error: 'Unknown action' }, 400);
 
       // ---- Фото от мастера (когда функция ждёт фото) ----
       if (update.message?.photo) {
@@ -480,14 +381,12 @@ Deno.serve(async (req) => {
         
         // Фото для отзыва (клиент)
         const { data: pendRev } = await supabase.from('bot_pending_review')
-          .select('appointment_id, step').eq('chat_id', chatId).maybeSingle();
+          .select('appointment_id, rating, step').eq('chat_id', chatId).maybeSingle();
         if (pendRev?.step === 'photo' && !isMaster) {
-           const fileId = update.message.photo[update.message.photo.length - 1].file_id;
-           await supabase.from('appointment_photos').insert({ appointment_id: pendRev.appointment_id, kind: 'review', file_id: fileId });
-           await supabase.from('bot_pending_review').delete().eq('chat_id', chatId);
-           await tg('sendMessage', { chat_id: chatId, text: 'Супер! Отзыв с фото сохранен. Ждем тебя снова! 💅' });
-           await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: `⭐️ Получен новый отзыв (с фото) от клиента!` });
-           return json({ success: true });
+          const reviewId = pendRev.appointment_id;
+          const fileId = update.message.photo.at(-1).file_id;
+          await finishBotReview(chatId, reviewId, pendRev.rating, fileId);
+          return json({ success: true });
         }
 
         const { data: pend } = await supabase.from('bot_pending_photo')
@@ -538,20 +437,21 @@ Deno.serve(async (req) => {
          // Ввод текста (в т.ч. текстовый отзыв)
          const { data: pendRev } = await supabase.from('bot_pending_review')
            .select('appointment_id, step').eq('chat_id', chatId).maybeSingle();
-         if (pendRev?.step === 'text') {
-            await supabase.from('appointments').update({ review_text: update.message.text }).eq('id', pendRev.appointment_id);
+         if (pendRev?.step === 'text' && !cmd.startsWith('/') && await reviewEligibility(pendRev.appointment_id, chatId)) {
+            await supabase.from('appointments').update({ review_text: update.message.text.trim().slice(0, 1200) }).eq('id', pendRev.appointment_id)
+              .eq('chat_id', chatId).is('review_published_at', null);
             await supabase.from('bot_pending_review').update({ step: 'photo' }).eq('chat_id', chatId);
             await tg('sendMessage', {
                chat_id: chatId,
-               text: `Спасибо за комментарий! 📝\n\nМожешь прикрепить фото готового маникюра (просто отправь фото) или пропустить:`,
-               reply_markup: { inline_keyboard: [[{ text: '⏭ Пропустить', callback_data: `creview_skip_photo_${pendRev.appointment_id}` }]] }
+               text: `Спасибо за комментарий! 📝\n\nПришли фото, чтобы опубликовать отзыв с фото, или нажми «Опубликовать без фото».`,
+               reply_markup: { inline_keyboard: [[{ text: 'Опубликовать без фото', callback_data: `creview_skip_photo_${pendRev.appointment_id}` }]] }
             });
             return json({ success: true });
          }
 
              // Клиентский режим
              const { data: pendBook } = await supabase.from('bot_pending_booking').select('*').eq('chat_id', chatId).maybeSingle();
-             if (pendBook && pendBook.step === 'name') {
+             if (pendBook?.step === 'name' && !cmd.startsWith('/')) {
                const name = update.message.text.trim();
                await supabase.from('bot_pending_booking').update({ client_name: name, step: 'phone' }).eq('chat_id', chatId);
                await tg('sendMessage', {
@@ -623,12 +523,26 @@ Deno.serve(async (req) => {
           await tg('sendMessage', {
             chat_id: chatId,
             text: '👋 Бот NailSpace\n\n📋 /journal — ближайшие записи\n📋 /journal_all — все заказы\n' +
-                  '📅 /slots — управление окошками\n⚡ /slots_week — добавить на неделю\n' +
+                  '💳 /payments — предоплаты на проверке\n📅 /slots — управление окошками\n⚡ /slots_week — добавить на неделю\n' +
                   '💰 /cashbox_day · /cashbox_week · /cashbox_month · /cashbox_all',
             reply_markup: { inline_keyboard: [[{
               text: '👑 Кабинет мастера',
               web_app: { url: 'https://yarikbold.github.io/NailSpace/miniapp/?screen=master' },
             }]] },
+          });
+          return json({ success: true });
+        }
+
+        if (cmd === '/payments') {
+          const { data, error } = await supabase.from('appointments')
+            .select('id, client_name, prepayment_amount, slots!inner(slot_time)').eq('status', 'payment_review')
+            .order('slots(slot_time)').limit(25);
+          if (error) throw error;
+          await tg('sendMessage', { chat_id: chatId, text: data.length ? 'Предоплаты на проверке' : 'Предоплат на проверке пока нет.',
+            reply_markup: { inline_keyboard: data.map(row => [{
+              text: `${formatMoscow(slotTimeValue(row.slots))} · ${row.client_name} · ${row.prepayment_amount} ₽`,
+              callback_data: `view_${row.id}`,
+            }]) },
           });
           return json({ success: true });
         }
@@ -715,46 +629,8 @@ Deno.serve(async (req) => {
         const phone = contact.phone_number;
 
         const { data: pendBook } = await supabase.from('bot_pending_booking').select('*').eq('chat_id', chatId).maybeSingle();
-        if (pendBook && pendBook.step === 'phone') {
-          // Завершаем запись
-          const { data: claimed } = await supabase.from('slots').update({ status: 'booked' }).eq('id', pendBook.slot_id).eq('status', 'available').select();
-          if (!claimed || claimed.length === 0) {
-             await tg('sendMessage', { chat_id: chatId, text: '❌ Извини, это окошко уже заняли. Нажми /start, чтобы выбрать другое.', reply_markup: { remove_keyboard: true } });
-             await supabase.from('bot_pending_booking').delete().eq('chat_id', chatId);
-             return json({ success: true });
-          }
-          
-          const svc = SERVICES[pendBook.service_idx];
-          const tgUsername = update.message.from?.username ? `@${update.message.from.username}` : null;
-          const newApp = {
-            slot_id: pendBook.slot_id,
-            client_name: pendBook.client_name,
-            phone: phone,
-            contact: tgUsername,
-            service: svc.name + ` (Стоимость: ${svc.price} ₽)`,
-            price: svc.price,
-            status: 'new',
-            chat_id: chatId,
-          };
-          const { data: appIns } = await supabase.from('appointments').insert(newApp).select().single();
-          
-          await tg('sendMessage', { chat_id: chatId, text: '✅ Контакт получен!', reply_markup: { remove_keyboard: true } });
-          await supabase.from('bot_pending_booking').delete().eq('chat_id', chatId);
-
-          if (appIns) {
-            const card = await buildCard(appIns.id);
-            if (card) {
-               await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: `🔔 *НОВАЯ ЗАПИСЬ ИЗ БОТА!*\n\n${card.text}`, parse_mode: 'Markdown', reply_markup: { inline_keyboard: card.keyboard } });
-            }
-            
-            await supabase.from('bot_pending_photo').upsert({ chat_id: String(chatId), appointment_id: appIns.id, kind: 'before' });
-            await tg('sendMessage', { 
-                chat_id: chatId, 
-                text: '✅ Запись успешно создана! 🎉\n\nМожешь прислать фото твоих ногтей сейчас (исходник), чтобы мастер заранее оценил работу.\n\n📸 *Пришли фото* или нажми кнопку ниже, чтобы пропустить.', 
-                parse_mode: 'Markdown',
-                reply_markup: { inline_keyboard: [[{ text: '⏭ Пропустить', callback_data: `cphoto_skip_before_${appIns.id}` }]] }
-            });
-          }
+        if (pendBook?.step === 'phone' && String(contact.user_id) === chatId) {
+          await finishChatBooking(chatId, pendBook, phone, update.message.from?.username);
         }
         return json({ success: true });
       }
@@ -762,9 +638,32 @@ Deno.serve(async (req) => {
       // ---- Кнопки ----
       if (update.callback_query) {
         const cb = update.callback_query;
+        if (!cb.message || typeof cb.data !== 'string' || cb.from.id !== cb.message.chat.id) return json({ success: true });
         const chatId = cb.message.chat.id;
         const messageId = cb.message.message_id;
         const isMaster = String(chatId) === String(MASTER_CHAT_ID);
+
+        if (cb.data.startsWith('pay_sent_')) {
+          const id = cb.data.slice('pay_sent_'.length);
+          const submitted = await submitPayment(id, String(chatId));
+          await answerCallbackQuery(cb.id, submitted ? 'Отправлено мастеру на проверку.' : 'Резерв истёк или запись уже обработана.');
+          if (submitted) await editMessageText(chatId, messageId, '💳 Мастер проверяет предоплату. Подтверждение придёт сюда.',
+            [[{ text: 'Отменить запись', callback_data: `cbook_cancel_${id}` }]]);
+          return json({ success: true });
+        }
+        if (cb.data.startsWith('cbook_cancel_')) {
+          const canceled = await cancelBooking(cb.data.slice('cbook_cancel_'.length), String(chatId));
+          await answerCallbackQuery(cb.id, canceled ? 'Запись отменена.' : 'Запись уже закрыта.');
+          if (canceled) await editMessageText(chatId, messageId, 'Запись отменена. Окошко снова свободно.', []);
+          return json({ success: true });
+        }
+        if (cb.data.startsWith('attend_')) {
+          const [, id, version] = cb.data.split('_');
+          const confirmed = await confirmAttendance(id, String(chatId), version);
+          await answerCallbackQuery(cb.id, confirmed ? 'Спасибо, до встречи!' : 'Запись уже недоступна.');
+          if (confirmed) await tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
+          return json({ success: true });
+        }
 
         // ===== Клиентские кнопки =====
         if (!isMaster) {
@@ -813,34 +712,14 @@ Deno.serve(async (req) => {
              const slotId = cb.data.split('_')[2];
              const { data: pend } = await supabase.from('bot_pending_booking').select('*').eq('chat_id', String(chatId)).maybeSingle();
              
-             if (pend?.step === 'repeat_day') {
-                const { data: past } = await supabase.from('appointments').select('phone').eq('chat_id', String(chatId)).order('created_at', { ascending: false }).limit(1);
-                if (past && past.length > 0) {
-                   await supabase.from('bot_pending_booking').update({ slot_id: slotId, step: 'phone' }).eq('chat_id', String(chatId));
-                   const phone = past[0].phone;
-                   const { data: claimed } = await supabase.from('slots').update({ status: 'booked' }).eq('id', slotId).eq('status', 'available').select();
-                   if (!claimed || claimed.length === 0) {
-                      await answerCallbackQuery(cb.id, '❌ Извини, окошко заняли.');
-                      await editMessageText(chatId, messageId, '❌ Извини, это окошко уже заняли. Нажми /start, чтобы выбрать другое.', []);
-                      await supabase.from('bot_pending_booking').delete().eq('chat_id', String(chatId));
-                      return json({ success: true });
-                   }
-                   const svc = SERVICES[pend.service_idx || 0];
-                   const tgUsername = update.callback_query.from?.username ? `@${update.callback_query.from.username}` : null;
-                   const newApp = { slot_id: slotId, client_name: pend.client_name, phone: phone, contact: tgUsername, service: svc.name + ` (Стоимость: ${svc.price} ₽)`, price: svc.price, status: 'new', chat_id: String(chatId) };
-                   const { data: appIns } = await supabase.from('appointments').insert(newApp).select().single();
-                   await answerCallbackQuery(cb.id, '✅ Запись создана!');
-                   await supabase.from('bot_pending_booking').delete().eq('chat_id', String(chatId));
-                   
-                   if (appIns) {
-                     const card = await buildCard(appIns.id);
-                     if (card) await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: `🔔 *НОВАЯ ЗАПИСЬ ИЗ БОТА (Повторная)!*\n\n${card.text}`, parse_mode: 'Markdown', reply_markup: { inline_keyboard: card.keyboard } });
-                     
-                     await editMessageText(chatId, messageId, `✅ Запись успешно создана! 🎉\n\nУслуга: ${svc.name}\n\nМожешь прислать фото твоих ногтей сейчас (исходник), чтобы мастер заранее оценил работу.\n\n📸 *Пришли фото* или нажми кнопку ниже, чтобы пропустить.`, [[{ text: '⏭ Пропустить', callback_data: `cphoto_skip_before_${appIns.id}` }]]);
-                     await supabase.from('bot_pending_photo').upsert({ chat_id: String(chatId), appointment_id: appIns.id, kind: 'before' });
-                   }
-                   return json({ success: true });
-                }
+             if (pend?.step === 'repeat_svc' || pend?.step === 'repeat_day') {
+               const { data: past } = await supabase.from('appointments').select('phone').eq('chat_id', String(chatId))
+                 .neq('phone', 'Telegram').order('created_at', { ascending: false }).limit(1);
+               if (past?.length) {
+                 await answerCallbackQuery(cb.id, '');
+                 await finishChatBooking(String(chatId), { ...pend, slot_id: slotId }, past[0].phone, cb.from.username);
+                 return json({ success: true });
+               }
              }
 
              await supabase.from('bot_pending_booking').update({ slot_id: slotId, step: 'name' }).eq('chat_id', String(chatId));
@@ -859,20 +738,6 @@ Deno.serve(async (req) => {
              });
              return json({ success: true });
            }
-           if (cb.data.startsWith('cbook_cancel_')) {
-             const appId = cb.data.split('_')[2];
-             const { data: app } = await supabase.from('appointments').select('status, slot_id').eq('id', appId).eq('chat_id', String(chatId)).single();
-             if (app && ['new', 'confirmed'].includes(app.status)) {
-               await supabase.from('appointments').update({ status: 'canceled' }).eq('id', appId);
-               if (app.slot_id) await supabase.from('slots').update({ status: 'available' }).eq('id', app.slot_id);
-               await answerCallbackQuery(cb.id, '❌ Запись отменена');
-               const my = await buildClientAppointments(String(chatId));
-               await editMessageText(chatId, messageId, my.text, my.keyboard);
-               await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: `⚠️ Клиент самостоятельно отменил запись!` });
-             }
-             return json({ success: true });
-           }
-
            if (cb.data === 'cbook_menu') {
              await answerCallbackQuery(cb.id, '');
              const { data: pastApps } = await supabase.from('appointments').select('id').eq('chat_id', String(chatId)).limit(1);
@@ -908,7 +773,10 @@ Deno.serve(async (req) => {
              if (sub === 'star') {
                 const rating = Number(parts[2]);
                 const appId = parts[3];
-                await supabase.from('appointments').update({ review_rating: rating }).eq('id', appId);
+                if (!Number.isInteger(rating) || rating < 1 || rating > 5 || !await reviewEligibility(appId, String(chatId))) {
+                  await answerCallbackQuery(cb.id, 'Отзыв уже опубликован или пока недоступен.');
+                  return json({ success: true });
+                }
                 await supabase.from('bot_pending_review').upsert({ chat_id: String(chatId), appointment_id: appId, rating: rating, step: 'text' });
                 await editMessageText(chatId, messageId, `⭐️ Спасибо за оценку (${rating}/5)!\n\nЕсли хочешь, напиши текстовый отзыв (просто отправь текст сообщением) или нажми пропустить:`, [[{ text: '⏭ Пропустить', callback_data: `creview_skip_text_${appId}` }]]);
                 await answerCallbackQuery(cb.id, '');
@@ -917,13 +785,18 @@ Deno.serve(async (req) => {
              if (sub === 'skip') {
                 const step = parts[2];
                 const appId = parts[3];
+                const { data: pending } = await supabase.from('bot_pending_review').select('rating')
+                  .eq('chat_id', String(chatId)).eq('appointment_id', appId).eq('step', step).maybeSingle();
+                if (!pending) {
+                  await answerCallbackQuery(cb.id, 'Этот шаг уже закрыт.');
+                  return json({ success: true });
+                }
                 if (step === 'text') {
                    await supabase.from('bot_pending_review').update({ step: 'photo' }).eq('chat_id', String(chatId));
-                   await editMessageText(chatId, messageId, 'Пропущено.\n\nМожешь прикрепить фото готового маникюра (просто отправь фото) или пропустить:', [[{ text: '⏭ Пропустить', callback_data: `creview_skip_photo_${appId}` }]]);
+                   await editMessageText(chatId, messageId, 'Пропущено.\n\nПришли фото, чтобы опубликовать отзыв с фото, или нажми «Опубликовать без фото».', [[{ text: 'Опубликовать без фото', callback_data: `creview_skip_photo_${appId}` }]]);
                 } else if (step === 'photo') {
-                   await supabase.from('bot_pending_review').delete().eq('chat_id', String(chatId));
-                   await editMessageText(chatId, messageId, 'Спасибо! Отзыв сохранен. Ждем тебя снова! 💅', []);
-                   await tg('sendMessage', { chat_id: MASTER_CHAT_ID, text: `⭐️ Получен новый отзыв от клиента!` });
+                   await finishBotReview(String(chatId), appId, pending.rating);
+                   await tg('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
                 }
                 await answerCallbackQuery(cb.id, '');
                 return json({ success: true });
@@ -997,7 +870,8 @@ Deno.serve(async (req) => {
             if (ex.status === 'booked') {
               await answerCallbackQuery(cb.id, '🔒 Окошко занято — нельзя убрать');
             } else {
-              await supabase.from('slots').delete().eq('id', ex.id);
+              const { data: removed } = await supabase.from('slots').delete().eq('id', ex.id).neq('status', 'booked').select('id').maybeSingle();
+              if (!removed) { await answerCallbackQuery(cb.id, 'Окошко уже занято'); return json({ success: true }); }
               await answerCallbackQuery(cb.id, `🗑 ${timeStr} удалено`);
             }
           } else {
@@ -1070,6 +944,14 @@ Deno.serve(async (req) => {
         if (!appointmentId) return json({ success: true });
 
         // Меню редактирования
+        if (action === 'payok' || action === 'payno') {
+          const result = action === 'payok' ? await approvePayment(appointmentId) : await cancelBooking(appointmentId, undefined, true);
+          await answerCallbackQuery(cb.id, result ? (action === 'payok' ? 'Оплата подтверждена' : 'Окошко открыто') : 'Заявка уже обработана.');
+          const card = await buildCard(appointmentId);
+          if (card) await editMessageText(chatId, messageId, card.text, card.keyboard);
+          return json({ success: true });
+        }
+
         if (action === 'edit') {
           await answerCallbackQuery(cb.id, '');
           const menu = await buildEditMenu(appointmentId);
@@ -1098,15 +980,14 @@ Deno.serve(async (req) => {
           const newSlotId = parts[1];
           const { data: pe } = await supabase.from('bot_pending_edit').select('appointment_id').eq('chat_id', String(chatId)).maybeSingle();
           if (!pe) { await answerCallbackQuery(cb.id, 'Ошибка: нет контекста'); return json({ success: true }); }
-          const { data: oldApp } = await supabase.from('appointments').select('slot_id').eq('id', pe.appointment_id).single();
-          // Занимаем новый слот
-          const { data: claimed } = await supabase.from('slots').update({ status: 'booked' }).eq('id', newSlotId).eq('status', 'available').select();
-          if (!claimed || claimed.length === 0) {
-            await answerCallbackQuery(cb.id, 'Это окошко уже занято'); return json({ success: true });
+          const { data: moved, error } = await supabase.rpc('nailspace_move_booking', {
+            p_id: pe.appointment_id, p_slot_id: newSlotId, p_chat_id: null,
+          });
+          if (error) throw error;
+          if (!moved) {
+            await answerCallbackQuery(cb.id, 'Это окошко уже занято или запись закрыта.');
+            return json({ success: true });
           }
-          // Освобождаем старый слот
-          if (oldApp?.slot_id) await supabase.from('slots').update({ status: 'available' }).eq('id', oldApp.slot_id);
-          await supabase.from('appointments').update({ slot_id: newSlotId }).eq('id', pe.appointment_id);
           await supabase.from('bot_pending_edit').delete().eq('chat_id', String(chatId));
           await answerCallbackQuery(cb.id, '✅ Время изменено');
           const card = await buildCard(pe.appointment_id);
@@ -1169,30 +1050,12 @@ Deno.serve(async (req) => {
         }
 
         if (action === 'cashok') {
-          const amount = parts[2];
-          const { data: existing } = await supabase.from('appointments')
-            .select('status, chat_id, review_requested_at').eq('id', appointmentId).single();
-          const updateData: any = { status: 'completed', price: Number(amount) };
-          if (!existing || existing.status !== 'completed') {
-            updateData.completed_at = new Date().toISOString();
-          }
-          
-          if (existing?.chat_id && !existing.review_requested_at) {
-             updateData.review_requested_at = new Date().toISOString();
-             await tg('sendMessage', {
-                chat_id: existing.chat_id,
-                text: `👋 Привет! Надеюсь, тебе всё понравилось.\nОцени, пожалуйста, как прошла запись от 1 до 5:`,
-                reply_markup: { inline_keyboard: [[
-                  { text: '1⭐️', callback_data: `creview_star_1_${appointmentId}` },
-                  { text: '2⭐️', callback_data: `creview_star_2_${appointmentId}` },
-                  { text: '3⭐️', callback_data: `creview_star_3_${appointmentId}` },
-                  { text: '4⭐️', callback_data: `creview_star_4_${appointmentId}` },
-                  { text: '5⭐️', callback_data: `creview_star_5_${appointmentId}` }
-                ]] }
-             });
+          const amount = Number(parts[2]);
+          if (!Number.isFinite(amount) || amount < 0 || !await completeBooking(appointmentId, amount)) {
+            await answerCallbackQuery(cb.id, 'Запись уже обработана или ожидает оплату.');
+            return json({ success: true });
           }
 
-          await supabase.from('appointments').update(updateData).eq('id', appointmentId);
           await supabase.from('bot_pending_cash').delete().eq('chat_id', String(chatId));
           await answerCallbackQuery(cb.id, `Внесено в кассу: ${amount} ₽ 💰`);
           const m = await buildAllMenu();
@@ -1229,40 +1092,25 @@ Deno.serve(async (req) => {
         }
 
         if (action === 'confirm') {
-          const { error } = await supabase.from('appointments')
-            .update({ status: 'confirmed' }).eq('id', appointmentId);
-          if (error) {
-            await answerCallbackQuery(cb.id, 'Ошибка БД: ' + error.message);
-            return json({ error: error.message }, 500);
-          }
-          await answerCallbackQuery(cb.id, 'Запись подтверждена ✅');
+          const changed = await confirmBooking(appointmentId);
+          await answerCallbackQuery(cb.id, changed ? 'Запись подтверждена ✅' : 'Запись уже обработана.');
           const card = await buildCard(appointmentId);
           if (card) await editMessageText(chatId, messageId, card.text, card.keyboard);
           return json({ success: true });
         }
 
         if (action === 'cancel') {
-          const { data: app } = await supabase.from('appointments')
-            .select('slot_id, chat_id').eq('id', appointmentId).single();
-          await supabase.from('appointments').update({ status: 'canceled' }).eq('id', appointmentId);
-          if (app?.slot_id) await supabase.from('slots').update({ status: 'available' }).eq('id', app.slot_id);
-          
-          if (app?.chat_id) {
-             await tg('sendMessage', { chat_id: app.chat_id, text: '❌ К сожалению, мастер отменил вашу запись. Пожалуйста, выберите другое время.' });
-          }
-
-          await answerCallbackQuery(cb.id, 'Запись отменена ❌');
+          const canceled = await cancelBooking(appointmentId);
+          await answerCallbackQuery(cb.id, canceled ? 'Запись отменена ❌' : 'Запись уже закрыта.');
           const card = await buildCard(appointmentId);
           if (card) await editMessageText(chatId, messageId, card.text, card.keyboard);
           return json({ success: true });
         }
 
         if (action === 'delete') {
-          const { data: app } = await supabase.from('appointments')
-            .select('status, slot_id').eq('id', appointmentId).single();
-          await supabase.from('appointments').delete().eq('id', appointmentId);
-          if (app?.slot_id) await supabase.from('slots').update({ status: 'available' }).eq('id', app.slot_id);
-          await answerCallbackQuery(cb.id, 'Запись удалена 🗑');
+          const { data: app, error } = await supabase.rpc('nailspace_delete_booking', { p_id: appointmentId });
+          if (error) throw error;
+          await answerCallbackQuery(cb.id, app?.id ? 'Запись удалена 🗑' : 'Запись уже удалена.');
           if (app?.status === 'completed') {
             const c = await buildCompleted();
             await editMessageText(chatId, messageId, c.text, c.keyboard);
@@ -1287,8 +1135,60 @@ Deno.serve(async (req) => {
 
 /* ================= HELPERS ================= */
 
+async function finishChatBooking(chatId: string, pending: { slot_id: string; service_idx: number; client_name: string }, phone: string, username?: string) {
+  const service = SERVICES[pending.service_idx];
+  if (!service || !paymentSettings()) {
+    await tg('sendMessage', { chat_id: chatId, text: 'Предоплата временно недоступна. Напиши мастеру.', reply_markup: { remove_keyboard: true } });
+    return;
+  }
+  const booking = await reserveBooking({ slotId: pending.slot_id, chatId, phone, name: pending.client_name,
+    service: service.name, price: service.price, contact: username ? '@' + username : null });
+  await supabase.from('bot_pending_booking').delete().eq('chat_id', chatId);
+  await tg('sendMessage', { chat_id: chatId, text: booking ? 'Контакт получен.' : 'Окошко уже занято. Нажми /start, чтобы выбрать другое.',
+    reply_markup: { remove_keyboard: true } });
+  if (booking) await tg('sendMessage', { chat_id: chatId, ...paymentMessage(booking) });
+}
+
+async function finishBotReview(chatId: string, id: string, rating: number, photo?: string) {
+  const published = await publishReview(id, chatId, rating, undefined, photo);
+  await supabase.from('bot_pending_review').delete().eq('chat_id', chatId).eq('appointment_id', id);
+  await tg('sendMessage', { chat_id: chatId, text: published ? 'Спасибо! Отзыв опубликован в профиле 💅' : 'Этот отзыв уже обработан.' });
+}
+
+async function sendReviewRequest(id: string, chatId: string) {
+  const requestedAt = new Date().toISOString();
+  const { data } = await supabase.from('appointments').update({ review_requested_at: requestedAt })
+    .eq('id', id).in('status', ['completed', 'confirmed']).is('review_requested_at', null).is('review_published_at', null)
+    .select('id').maybeSingle();
+  if (!data) return;
+  const sent = await requestReview(id, chatId).catch(() => false);
+  if (!sent) await supabase.from('appointments').update({ review_requested_at: null })
+    .eq('id', id).eq('review_requested_at', requestedAt);
+}
+
+async function confirmBooking(id: string) {
+  const { data, error } = await supabase.from('appointments').update({ status: 'confirmed' })
+    .eq('id', id).eq('status', 'new').select('chat_id').maybeSingle();
+  if (error) throw error;
+  if (data?.chat_id) await tg('sendMessage', { chat_id: data.chat_id, text: '✅ Мастер подтвердила твою запись. До встречи! 💅' });
+  return Boolean(data);
+}
+
+async function completeBooking(id: string, amount: number) {
+  const { data: existing, error: lookupError } = await supabase.from('appointments')
+    .select('status, completed_at').eq('id', id).in('status', ['new', 'confirmed', 'completed']).maybeSingle();
+  if (lookupError) throw lookupError;
+  if (!existing) return false;
+  const { data, error } = await supabase.from('appointments')
+    .update({ status: 'completed', price: amount, completed_at: existing.completed_at || new Date().toISOString() })
+    .eq('id', id).eq('status', existing.status).select('chat_id').maybeSingle();
+  if (error) throw error;
+  if (data?.chat_id) await sendReviewRequest(id, data.chat_id);
+  return Boolean(data);
+}
+
 const statusRu = (s: string) =>
-  ({ new: '🆕 новая', confirmed: '✅ подтверждена', completed: '💰 в кассе', canceled: '❌ отменена' }[s] || s);
+  ({ awaiting_payment: '💳 ждём перевод', payment_review: '💳 предоплата на проверке', new: '🆕 новая', confirmed: '✅ подтверждена', completed: '💰 в кассе', canceled: '❌ отменена' }[s] || s);
 
 function slotTimeValue(slots: any) {
   return Array.isArray(slots) ? slots[0]?.slot_time : slots?.slot_time;
@@ -1305,7 +1205,7 @@ function reminderCardLabel(slotTime: string, clientName: string) {
 // Карточка записи: контакт, статусы фото, кнопки управления
 async function buildCard(id: string) {
   const { data: a } = await supabase.from('appointments')
-    .select('id, client_name, phone, contact, service, comment, price, status, slots!inner ( slot_time )')
+    .select('id, client_name, phone, contact, service, comment, price, status, prepayment_amount, payment_confirmed_at, attendance_confirmed_at, slots!inner ( slot_time )')
     .eq('id', id).single();
   if (!a) return null;
 
@@ -1328,9 +1228,15 @@ async function buildCard(id: string) {
     `📝 ${escapeMarkdown(a.comment || '—')}\n` +
     `📷 Фото «исходник»: ${hasBefore ? '✅ есть' : '❌ нет'}\n` +
     `📸 Референс: ${hasRef ? '✅ есть' : '❌ нет'}\n` +
+    (a.prepayment_amount === null ? '' : `💳 Предоплата: ${a.prepayment_amount} ₽${a.payment_confirmed_at ? ' · получена' : ''}\n`) +
+    (a.attendance_confirmed_at ? '✅ Клиентка подтвердила визит\n' : '') +
     `Статус: ${statusRu(a.status)}`;
 
-  const keyboard: any[] = [];
+  const keyboard: { text: string; callback_data: string }[][] = [];
+  if (a.status === 'payment_review') keyboard.push([
+    { text: '✅ Подтвердить оплату', callback_data: `payok_${id}` },
+    { text: '❌ Отклонить', callback_data: `payno_${id}` },
+  ]);
   if (a.status === 'new') keyboard.push([{ text: '✅ Подтвердить', callback_data: `confirm_${id}` }]);
   if (a.status === 'new' || a.status === 'confirmed') {
     keyboard.push([{ text: '💰 Занести в кассу', callback_data: `cash_${id}` }]);
@@ -1342,7 +1248,7 @@ async function buildCard(id: string) {
       { text: '🗑 Удалить запись', callback_data: `delete_${id}` },
       { text: '💰 Изменить стоимость', callback_data: `cash_${id}` },
     ]);
-  } else {
+  } else if (a.status === 'new' || a.status === 'confirmed' || a.status === 'canceled') {
     // Активные записи: фото + отмена/удаление
     keyboard.push([
       { text: `📷 ${hasBefore ? 'Сменить' : 'Добавить'} исходник`, callback_data: `photo_before_${id}` },
@@ -1392,29 +1298,6 @@ async function sendPhotos(chatId: string | number, id: string) {
 
 function escapeMarkdown(value: unknown) {
   return String(value ?? '').replace(/([_*[\]`])/g, '\\$1');
-}
-
-async function validateMasterInitData(initData: string) {
-  if (!initData) return null;
-  const params = new URLSearchParams(initData);
-  const receivedHash = params.get('hash');
-  const authDate = Number(params.get('auth_date') || 0);
-  const userJson = params.get('user');
-  if (!receivedHash || !userJson || !authDate || Date.now() / 1000 - authDate > 86400) return null;
-  const dataCheckString = [...params.entries()]
-    .filter(([key]) => key !== 'hash')
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n');
-  const encoder = new TextEncoder();
-  const secretKey = await crypto.subtle.importKey('raw', encoder.encode('WebAppData'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const secret = await crypto.subtle.sign('HMAC', secretKey, encoder.encode(BOT_TOKEN));
-  const checkKey = await crypto.subtle.importKey('raw', secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', checkKey, encoder.encode(dataCheckString)));
-  const expectedHash = [...signature].map(b => b.toString(16).padStart(2, '0')).join('');
-  if (expectedHash !== receivedHash) return null;
-  const user = JSON.parse(userJson);
-  return String(user.id) === String(MASTER_CHAT_ID) ? String(user.id) : null;
 }
 
 // Карточка + фото одним сообщением (используется после добавления фото)
@@ -1615,15 +1498,9 @@ async function buildEditTimeSlots(day: string) {
   return { text: `📅 *${dayRu}* — свободные окошки:`, keyboard };
 }
 
-function json(obj: unknown, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    status,
-  });
-}
-
 // ===== Клиент: Дни со свободными слотами =====
 async function buildClientDays() {
+  await expireHolds();
   const now = new Date().toISOString();
   const in14 = new Date(Date.now() + 14 * 86400000).toISOString();
   const { data: slots } = await supabase.from('slots')
@@ -1645,6 +1522,7 @@ async function buildClientDays() {
 
 // ===== Клиент: Слоты конкретного дня =====
 async function buildClientSlots(day: string) {
+  await expireHolds();
   const fromIso = day + 'T00:00:00+03:00';
   const toIso = day + 'T23:59:59+03:00';
   const { data: slots } = await supabase.from('slots')
@@ -1722,20 +1600,6 @@ async function buildClientAppointments(chatId: string) {
   return { text, keyboard };
 }
 
-async function tg(method: string, payload: unknown) {
-  const res = await fetch(`${TG}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const body = await res.json().catch(() => null);
-  if (!res.ok || body?.ok === false) {
-    const err = await res.text().catch(() => 'unknown error');
-    console.error(`Telegram API error [${method}]:`, res.status, err);
-  }
-  return body;
-}
-
 async function deleteMessage(chatId: number | string, messageId: number) {
   await tg('deleteMessage', { chat_id: chatId, message_id: messageId });
 }
@@ -1744,7 +1608,7 @@ async function answerCallbackQuery(callbackQueryId: string, text: string) {
   await tg('answerCallbackQuery', { callback_query_id: callbackQueryId, text, show_alert: true });
 }
 
-async function editMessageText(chatId: number, messageId: number, text: string, keyboard: any[]) {
+async function editMessageText(chatId: number, messageId: number, text: string, keyboard: any[] | null) {
   await tg('editMessageText', {
     chat_id: chatId,
     message_id: messageId,

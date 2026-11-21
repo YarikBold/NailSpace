@@ -785,26 +785,6 @@
         // первичная загрузка окошек
         loadSlots();
 
-        /* ===== УВЕДОМЛЕНИЕ МАСТЕРУ ЧЕРЕЗ EDGE FUNCTION =====
-           Токен бота и CHAT_ID хранятся в секретах функции на сервере.
-           Фронт лишь сообщает «произошла запись» и передаёт настоящий id из БД */
-        async function sendTelegramNotification(a, slotTime, contact) {
-            const response = await fetch(EDGE_FUNCTION_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + SUPABASE_ANON_KEY   // обязательный JWT для functions
-                },
-                body: JSON.stringify({
-                    action: 'new_appointment',
-                    appointmentId: a.id
-                })
-            });
-            if (!response.ok) {
-                throw new Error('Edge Function notification failed: ' + response.status);
-            }
-        }
-
         /* ===== INLINE-ВАЛИДАЦИЯ: показ/скрытие ошибок ===== */
         function showFieldError(fieldEl, message) {
             clearFieldError(fieldEl);
@@ -871,63 +851,34 @@
                     data.contact = contactType + ' — ' + contactRaw;
                 }
 
-                // 1. Атомарно занимаем слот (защита от двойной брони:
-                //    обновление пройдёт только если слот ещё 'available')
-                const { data: claimed, error: claimError } = await sb
-                    .from('slots')
-                    .update({ status: 'booked' })
-                    .eq('id', slotInput.value)
-                    .eq('status', 'available')
-                    .select();
-
-                if (claimError || !claimed || claimed.length === 0) {
-                    showToast('Увы, это окошко только что заняли — выбери другое.');
-                    submitBtn.textContent = originalText;
-                    submitBtn.disabled = false;
-                    loadSlots();
-                    return;
-                }
-
-                // 2. Создаём запись клиента со статусом 'new'
-                const { data: appointment, error: insertError } = await sb
-                    .from('appointments')
-                    .insert({
-                        slot_id: slotInput.value,
-                        client_name: data.name,
+                const response = await fetch(EDGE_FUNCTION_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'website_booking',
+                        slotId: slotInput.value,
+                        name: data.name,
                         phone: data.phone,
-                        contact: data.contact || null,
+                        contact: data.contact,
                         service: data.service,
-                        comment: data.comment || null,
-                        price: Number(data.price) || 0,
-                        status: 'new'
+                        comment: data.comment,
+                        price: Number(data.price) || 0
                     })
-                    .select()
-                    .single();
-
-                if (insertError) {
-                    // откатываем слот, чтобы он не «потерялся»
-                    await sb.from('slots').update({ status: 'available' }).eq('id', slotInput.value);
-                    throw insertError;
-                }
-
-                // 3. Уведомление мастеру (сбой отправки НЕ отменяет уже созданную запись)
-                try {
-                    await sendTelegramNotification(appointment, slotInput.dataset.time, {
-                        value: contactRaw,
-                        type: contactType,
-                    });
-                } catch (notifyError) {
-                    console.error('Telegram-уведомление не доставлено:', notifyError);
+                });
+                const result = await response.json();
+                if (!response.ok) {
+                    if (response.status === 409) await loadSlots();
+                    throw new Error(result.error || 'Не удалось создать запись.');
                 }
 
                 showToast('Спасибо! Запись создана — мастер подтвердит её в ближайшее время.');
+                const serviceName = data.service;
                 form.reset();
                 updateService();
                 await loadSlots();
 
                 // Показываем оверлей успешной записи
                 const slotTimeText = slotInput.dataset.time || '';
-                const serviceName = serviceResult.value || '';
                 showSuccessOverlay(slotTimeText, serviceName);
 
                 submitBtn.textContent = originalText;

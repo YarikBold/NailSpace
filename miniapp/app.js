@@ -25,7 +25,15 @@ const state = {
     selectedDay: null,
     selectedSlot: null,
     photos: [],
-    transferAppointment: null
+    transferAppointment: null,
+    myBookings: [],
+    reviewable: [],
+    paymentConfig: null,
+    currentPayment: null,
+    paymentTimer: null,
+    reviewPage: 0,
+    reviewRequest: 0,
+    reviewReturnScreen: 'services'
 };
 
 function setAppStatus(message, type = '') {
@@ -34,6 +42,39 @@ function setAppStatus(message, type = '') {
     el.textContent = message || '';
     el.className = `app-status${type ? ' ' + type : ''}`;
     el.hidden = !message;
+}
+
+const bookingStatus = {
+    new: 'Ожидает подтверждения',
+    confirmed: 'Подтверждена',
+    awaiting_payment: 'Ожидает перевода',
+    payment_review: 'Предоплата на проверке',
+    completed: 'Завершена',
+    canceled: 'Отменена',
+};
+
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+})[ch]);
+const dateInMoscow = value => new Date(value).toLocaleString('ru-RU', {
+    day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow',
+});
+const serviceLabel = value => String(value).replace(/ \(Стоимость: .*\)$/, '');
+const currency = value => new Intl.NumberFormat('ru-RU').format(value) + ' ₽';
+
+async function api(action, extra = {}, signed = true) {
+    const response = await fetch(EDGE_FUNCTION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...(signed ? { initData: Telegram.WebApp.initData } : {}), ...extra }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(result.error || 'Не удалось связаться с NailSpace. Попробуйте ещё раз.');
+        error.status = response.status;
+        throw error;
+    }
+    return result;
 }
 
 // App Logic
@@ -56,6 +97,8 @@ const app = {
     },
 
     showScreen: function(screenId) {
+        clearInterval(state.paymentTimer);
+        window.scrollTo(0, 0);
         document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
         document.getElementById(`screen-${screenId}`).classList.add('active');
         
@@ -71,32 +114,36 @@ const app = {
 
     loadMasterCabinet: async function(activeSection = 'bookings') {
         const panel = document.getElementById('masterPanel');
-        document.getElementById('masterOverview').hidden = false;
+        const payments = activeSection === 'payments';
+        document.getElementById('masterOverview').hidden = payments;
         this.setMasterDrawerActive(activeSection);
         this.setMasterTitle(activeSection);
+        panel.innerHTML = '<p class="slots-loading">Загружаем записи…</p>';
         try {
-            const response = await fetch(EDGE_FUNCTION_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
-                body: JSON.stringify({ action: 'master_list', initData: Telegram.WebApp.initData }),
-            });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Доступ запрещён');
+            const result = await this.masterRequest('master_list', { kind: activeSection });
+            if (!payments) this.renderMasterOverview(result.appointments.filter(a => a.status !== 'payment_review'));
             if (!result.appointments.length) {
-                panel.innerHTML = '<p class="slots-loading">Ближайших записей нет.</p>';
+                panel.innerHTML = payments ? '<p class="slots-loading">Предоплат на проверке пока нет.</p>' : '<p class="slots-loading">Ближайших записей нет.</p>';
                 return;
             }
-            this.renderMasterOverview(result.appointments);
             panel.innerHTML = result.appointments.map(a => {
                 const slot = Array.isArray(a.slots) ? a.slots[0] : a.slots;
-                const date = new Date(slot.slot_time).toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
-                const actions = a.status === 'new'
-                    ? `<button class="btn-primary" onclick="app.masterAction('${a.id}','confirm')">Подтвердить</button>`
-                    : '';
-                return `<article class="master-booking" onclick="app.openMasterDetail('${a.id}')"><strong>${date} · ${a.client_name}</strong><div>${a.service}</div><small>${a.phone} · ${a.status === 'confirmed' ? 'подтверждена' : 'новая'}</small><div class="master-actions">${actions}<button class="btn-secondary" onclick="event.stopPropagation(); app.masterAction('${a.id}','cancel')">Отменить</button><button class="btn-secondary" onclick="event.stopPropagation(); app.masterCash('${a.id}', '${a.price || 0}')">В кассу</button></div></article>`;
+                const isPayment = a.status === 'payment_review';
+                const actions = isPayment ? `
+                    <button class="btn-primary" onclick="event.stopPropagation(); app.masterAction('${a.id}','approve_payment')">Подтвердить оплату</button>
+                    <button class="btn-secondary" onclick="event.stopPropagation(); app.masterAction('${a.id}','reject_payment')">Отклонить и открыть слот</button>` : `
+                    ${a.status === 'new' ? `<button class="btn-primary" onclick="event.stopPropagation(); app.masterAction('${a.id}','confirm')">Подтвердить</button>` : ''}
+                    <button class="btn-secondary" onclick="event.stopPropagation(); app.masterAction('${a.id}','cancel')">Отменить</button>
+                    <button class="btn-secondary" onclick="event.stopPropagation(); app.masterCash('${a.id}', '${a.price ?? 0}')">В кассу</button>`;
+                return `<article class="master-booking" onclick="app.openMasterDetail('${a.id}')">
+                    <strong>${dateInMoscow(slot.slot_time)} · ${escapeHtml(a.client_name)}</strong><div>${escapeHtml(a.service)}</div>
+                    <small>${escapeHtml(a.phone)} · ${bookingStatus[a.status]}</small>
+                    ${isPayment ? `<div class="booking-status">Перевод ${currency(a.prepayment_amount)}</div>` : ''}
+                    ${a.attendance_confirmed_at ? '<div class="booking-status is-confirmed">Клиентка подтвердила визит</div>' : ''}
+                    <div class="master-actions">${actions}</div></article>`;
             }).join('');
         } catch (error) {
-            panel.innerHTML = '<p class="slots-loading">Кабинет доступен только мастеру.</p>';
+            panel.textContent = error.message;
         }
     },
 
@@ -116,7 +163,7 @@ const app = {
         const date = new Date(item.time).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
         const remaining = Math.max(0, item.time - now);
         const left = current ? 'идёт сейчас' : `через ${Math.floor(remaining / 3600000)} ч ${Math.floor((remaining % 3600000) / 60000)} мин`;
-        overview.innerHTML = `<div class="master-overview" onclick="app.openMasterDetail('${item.id}')"><strong>${label}</strong><div>${date} · ${item.client_name}</div><small>${item.service} · ${left}</small></div>`;
+        overview.innerHTML = `<div class="master-overview" onclick="app.openMasterDetail('${item.id}')"><strong>${label}</strong><div>${date} · ${escapeHtml(item.client_name)}</div><small>${escapeHtml(item.service)} · ${left}</small></div>`;
     },
 
     showMasterSection: function(section) {
@@ -143,7 +190,7 @@ const app = {
     setMasterTitle: function(section) {
         const title = document.getElementById('masterTitle');
         if (!title) return;
-        const labels = { upcoming: 'ближайшая запись', bookings: 'записи', cash: 'касса', slots: 'свободные окошки', profile: 'профиль' };
+        const labels = { upcoming: 'ближайшая запись', bookings: 'записи', payments: 'предоплаты', cash: 'касса', slots: 'свободные окошки', profile: 'профиль' };
         title.textContent = `Кабинет мастера — ${labels[section] || 'записи'}`;
     },
 
@@ -234,10 +281,7 @@ const app = {
     },
 
     masterRequest: async function(action, extra = {}) {
-        const response = await fetch(EDGE_FUNCTION_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY }, body: JSON.stringify({ action, initData: Telegram.WebApp.initData, ...extra }) });
-        const result = await response.json();
-        if (!response.ok) throw new Error(result.error || 'Ошибка кабинета');
-        return result;
+        return api(action, extra);
     },
 
     loadMasterProfile: async function() {
@@ -350,7 +394,14 @@ const app = {
     },
 
     masterAction: async function(id, kind) {
-        try { await this.masterRequest('master_action', { appointmentId: id, kind }); await this.loadMasterCabinet(); } catch (e) { alert(e.message); }
+        if (kind === 'reject_payment' && !confirm('Отклонить предоплату и освободить время?')) return;
+        try {
+            await this.masterRequest('master_action', { appointmentId: id, kind });
+            const activeSection = document.querySelector('[data-master-section].active')?.dataset.masterSection;
+            await this.loadMasterCabinet(activeSection || 'bookings');
+        } catch (error) {
+            alert(error.message);
+        }
     },
 
     masterCash: async function(id, defaultAmount) {
@@ -379,7 +430,7 @@ const app = {
             const sourceBlock = source ? `<div class="client-photo-card"><div class="client-photo-label">Исходник</div><img class="master-detail-photo" src="${source}" alt="Исходник ногтей клиента"></div>` : beforeFile ? `<div class="client-photo-card"><div class="client-photo-label">Исходник</div><div class="master-photo-loading" id="masterPhotoBefore">Загружаю фото…</div></div>` : '';
             const referenceBlock = reference ? `<div class="client-photo-card"><div class="client-photo-label">Референс</div><img class="master-detail-photo" src="${reference}" alt="Референс дизайна"></div>` : refFile ? `<div class="client-photo-card"><div class="client-photo-label">Референс</div><div class="master-photo-loading" id="masterPhotoRef">Загружаю фото…</div></div>` : '';
             const photoGrid = sourceBlock || referenceBlock ? `<div class="client-photo-grid">${sourceBlock}${referenceBlock}</div>` : '';
-            content.innerHTML = `<article class="client-card"><div class="client-status-row"><span class="client-status">${appointment.status === 'confirmed' ? 'Подтверждена' : 'Новая'}</span></div><div class="client-card-top"><div><span class="eyebrow">карточка клиента</span><h2>${appointment.client_name}</h2></div></div><div class="client-meta"><span><i class="client-meta-icon icon-calendar"></i><b>Дата</b><em>${date}</em></span><span><i class="client-meta-icon icon-service"></i><b>Услуга</b><em>${appointment.service}</em></span><span><i class="client-meta-icon icon-money"></i><b>Стоимость</b><em>${appointment.price || 0} ₽</em></span><span><i class="client-meta-icon icon-phone"></i><b>Телефон</b><em>${appointment.phone}</em></span>${appointment.contact ? `<span><i class="client-meta-icon icon-contact"></i><b>Контакт</b><em>${appointment.contact}</em></span>` : ''}</div>${comment.replace(/Фото (Исходник|Референс): https:\/\/\S+/g, '').trim() ? `<p class="client-comment">${comment.replace(/Фото (Исходник|Референс): https:\/\/\S+/g, '').trim()}</p>` : ''}${photoGrid}<div class="master-photo-actions"><label class="btn-secondary">Добавить исходник<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, 'before', '${id}')"></label><label class="btn-secondary">Добавить референс<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, 'ref', '${id}')"></label></div></article>`;
+            content.innerHTML = `<article class="client-card"><div class="client-status-row"><span class="client-status">${bookingStatus[appointment.status]}</span></div><div class="client-card-top"><div><span class="eyebrow">карточка клиента</span><h2>${escapeHtml(appointment.client_name)}</h2></div></div><div class="client-meta"><span><i class="client-meta-icon icon-calendar"></i><b>Дата</b><em>${date}</em></span><span><i class="client-meta-icon icon-service"></i><b>Услуга</b><em>${escapeHtml(appointment.service)}</em></span><span><i class="client-meta-icon icon-money"></i><b>Стоимость</b><em>${appointment.price || 0} ₽</em></span><span><i class="client-meta-icon icon-phone"></i><b>Телефон</b><em>${escapeHtml(appointment.phone)}</em></span>${appointment.contact ? `<span><i class="client-meta-icon icon-contact"></i><b>Контакт</b><em>${escapeHtml(appointment.contact)}</em></span>` : ''}</div>${comment.replace(/Фото (Исходник|Референс): https:\/\/\S+/g, '').trim() ? `<p class="client-comment">${escapeHtml(comment.replace(/Фото (Исходник|Референс): https:\/\/\S+/g, '').trim())}</p>` : ''}${photoGrid}<div class="master-photo-actions"><label class="btn-secondary">Добавить исходник<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, 'before', '${id}')"></label><label class="btn-secondary">Добавить референс<input type="file" accept="image/*" hidden onchange="app.addMasterPhoto(event, 'ref', '${id}')"></label></div></article>`;
             if (beforeFile && !beforeUrl) this.loadMasterPhoto(beforeFile, 'masterPhotoBefore');
             if (refFile && !refUrl) this.loadMasterPhoto(refFile, 'masterPhotoRef');
         } catch (e) { content.innerHTML = '<p class="slots-loading">Не удалось загрузить карточку.</p>'; }
@@ -413,102 +464,265 @@ const app = {
         this.setMasterTitle('cash');
         try {
             const result = await this.masterRequest('master_cash');
-            panel.innerHTML = `<div class="master-booking"><strong>Общий доход: ${result.total} ₽</strong><small>Завершённых записей: ${result.rows.length}</small></div>` + result.rows.map(row => `<article class="master-booking"><strong>${row.client_name} · ${row.price} ₽</strong><div>${row.service}</div><small>${row.completed_at ? new Date(row.completed_at).toLocaleString('ru-RU') : '—'}</small></article>`).join('');
+            panel.innerHTML = `<div class="master-booking"><strong>Общий доход: ${result.total} ₽</strong><small>Завершённых записей: ${result.rows.length}</small></div>` + result.rows.map(row => `<article class="master-booking"><strong>${escapeHtml(row.client_name)} · ${row.price} ₽</strong><div>${row.service}</div><small>${row.completed_at ? new Date(row.completed_at).toLocaleString('ru-RU') : '—'}</small></article>`).join('');
         } catch (e) { panel.innerHTML = '<p class="slots-loading">Не удалось загрузить кассу.</p>'; }
+    },
+
+    openMyBookings: async function() {
+        this.showScreen('my-bookings');
+        await this.loadMyBookings();
     },
 
     loadMyBookings: async function() {
         const list = document.getElementById('myBookingsList');
-        const chatId = Telegram.WebApp.initDataUnsafe?.user?.id;
-        
-        if (!chatId) {
-            list.innerHTML = '<p class="slots-loading">Откройте приложение внутри Telegram.</p>';
-            return;
+        list.innerHTML = '<p class="slots-loading">Загружаем записи…</p>';
+        try {
+            const { bookings, reviewable, payment } = await api('client_bookings');
+            state.myBookings = bookings;
+            state.reviewable = reviewable;
+            state.paymentConfig = payment;
+            const cards = bookings.map(a => {
+                const paymentPending = a.status === 'awaiting_payment' || a.status === 'payment_review';
+                const primary = paymentPending
+                    ? `<button type="button" class="btn-primary flow-wide" onclick="app.resumePayment('${a.id}')">${a.status === 'awaiting_payment' ? 'Перейти к предоплате' : 'Статус предоплаты'}</button>`
+                    : `<button type="button" class="btn-primary flow-wide" onclick="app.startTransfer('${a.id}')">Перенести запись</button>`;
+                return `<article class="flow-card">
+                    <h3>${escapeHtml(a.service)}</h3><p>${dateInMoscow(a.slotTime)} · ${currency(a.price)}</p>
+                    <p class="booking-status ${a.status === 'confirmed' ? 'is-confirmed' : ''}">${bookingStatus[a.status]}</p>
+                    ${primary}
+                    <button type="button" class="btn-secondary flow-wide" onclick="app.cancelBooking('${a.id}', this)">Отменить запись</button>
+                </article>`;
+            }).join('');
+            const reviews = reviewable.map(a => `<article class="flow-card">
+                <h3>${escapeHtml(a.service)}</h3><p>${dateInMoscow(a.slotTime)}</p>
+                <button type="button" class="btn-secondary flow-wide" onclick="app.openReviewForm('${a.id}')">Оставить отзыв</button>
+            </article>`).join('');
+            list.innerHTML = `${cards || '<p class="slots-loading">У вас пока нет активных записей.</p>'}
+                ${reviews ? '<h3 class="past-bookings-title">Прошедшие визиты</h3>' + reviews : ''}
+                <button type="button" class="btn-primary flow-wide" onclick="app.showScreen('services')">Записаться</button>`;
+        } catch (error) {
+            list.textContent = error.message;
         }
-
-        const today = new Date();
-        today.setHours(0,0,0,0);
-
-        const { data: apps, error } = await sb
-            .from('appointments')
-            .select('*, slots!inner(slot_time)')
-            .eq('chat_id', String(chatId))
-            .in('status', ['new', 'confirmed'])
-            .gte('slots.slot_time', today.toISOString())
-            .order('slot_time', { foreignTable: 'slots', ascending: true });
-
-        if (error || !apps || apps.length === 0) {
-            list.innerHTML = '<div style="text-align:center; padding: 20px 0;"><p style="margin-bottom:24px; color:var(--text-muted);">У вас пока нет активных записей.</p><button class="btn-primary" style="width:100%" onclick="window.location.href=\'?screen=services\'">Записаться</button></div>';
-            return;
-        }
-
-        let html = apps.map(a => {
-            const slotDate = new Date(a.slots.slot_time);
-            const timeStr = slotDate.toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-            
-            let statusText = '';
-            if (a.status === 'new') statusText = '<span style="color:#facc15">Ожидает подтверждения</span>';
-            if (a.status === 'confirmed') statusText = '<span style="color:#4ade80">Подтверждена</span>';
-
-            return `
-            <div class="service-card" style="margin-bottom:16px;">
-                <div class="service-name">${a.service}</div>
-                <div class="service-footer" style="flex-direction:column; align-items:flex-start; gap:8px;">
-                    <div><strong>Дата:</strong> ${timeStr}</div>
-                    <div><strong>Цена:</strong> ${a.price || '—'} ₽</div>
-                    <div><strong>Статус:</strong> ${statusText}</div>
-                    <button class="btn-primary" style="margin-top:12px;width:100%" onclick="app.startTransfer('${a.id}')">Перенести запись</button>
-                    <button class="btn-secondary" style="width:100%;background:rgba(255,255,255,0.1);color:#fff" onclick="app.cancelBooking('${a.id}')">Отменить запись</button>
-                </div>
-            </div>
-            `;
-        }).join('');
-        
-        html += `<button class="btn-primary" style="margin-top:16px;width:100%" onclick="window.location.href='?screen=services'">Записаться ещё</button>`;
-        list.innerHTML = html;
     },
 
     startTransfer: async function(id) {
-        const { data: booking, error } = await sb.from('appointments').select('id, slot_id, service, price').eq('id', id).single();
-        if (error || !booking) return alert('Не удалось открыть перенос записи.');
+        const booking = state.myBookings.find(entry => entry.id === id);
+        if (!booking) return;
         state.transferAppointment = booking;
         state.selectedService = { name: booking.service, price_min: booking.price || 0, price_max: booking.price || 0, duration_hours: 0 };
-        state.selectedSlot = null;
-        if (!state.slots.length) await this.loadData();
-        this.showScreen('calendar');
+        await this.openCalendar();
     },
 
-    cancelBooking: async function(id) {
-        if (!confirm('Точно отменить запись?')) return;
-        const btn = event.target;
-        btn.textContent = 'Отменяем...';
+    leaveCalendar: function() {
+        if (state.transferAppointment) {
+            state.transferAppointment = null;
+            state.selectedService = null;
+            this.openMyBookings();
+        } else {
+            this.showScreen('services');
+        }
+    },
+
+    cancelBooking: async function(id, btn) {
+        const booking = state.myBookings.find(entry => entry.id === id);
+        const submitted = booking?.payment_submitted_at || state.currentPayment?.id === id && state.currentPayment.status === 'payment_review';
+        const prompt = submitted
+            ? 'Отменить запись и освободить время? Если уже перевели деньги, свяжитесь с мастером.'
+            : 'Отменить запись и освободить время?';
+        if (!confirm(prompt)) return;
         btn.disabled = true;
-
         try {
-            const { data: appData } = await sb.from('appointments').select('slot_id').eq('id', id).single();
-            await sb.from('appointments').update({ status: 'canceled' }).eq('id', id);
-            if (appData && appData.slot_id) {
-                await sb.from('slots').update({ status: 'available' }).eq('id', appData.slot_id);
-            }
-            
-            // Notify master via Edge function
-            fetch(EDGE_FUNCTION_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
-                body: JSON.stringify({ action: 'cancel_appointment', appointmentId: id })
-            }).catch(() => {});
-
-            alert('Запись отменена.');
-            this.loadMyBookings();
-        } catch (e) {
-            alert('Ошибка при отмене.');
-            btn.textContent = 'Отменить запись';
+            await api('client_cancel', { appointmentId: id });
+            state.currentPayment = null;
+            await this.openMyBookings();
+        } catch (error) {
+            alert(error.message);
+        } finally {
             btn.disabled = false;
         }
     },
 
+    resumePayment: function(id) {
+        const booking = state.myBookings.find(entry => entry.id === id);
+        if (booking) this.showPayment(booking, state.paymentConfig);
+    },
+
+    showPayment: function(booking, payment) {
+        state.currentPayment = booking;
+        this.showScreen('payment');
+        const awaiting = booking.status === 'awaiting_payment';
+        document.getElementById('paymentTitle').textContent = awaiting ? 'Предоплата' : 'На проверке';
+        document.getElementById('paymentService').textContent = booking.service;
+        document.getElementById('paymentTime').textContent = dateInMoscow(booking.slotTime) + ' (МСК)';
+        document.getElementById('paymentDetails').hidden = !awaiting || !payment;
+        document.getElementById('paymentCopyStatus').textContent = '';
+        const status = document.getElementById('paymentStatus');
+        const cancel = document.getElementById('paymentCancel');
+        cancel.textContent = awaiting ? 'Отменить и освободить время' : 'Отменить запись';
+        if (!awaiting) {
+            status.textContent = 'Мастер проверяет перевод. Подтверждение записи придёт в Telegram.';
+            return;
+        }
+        if (!payment) {
+            status.textContent = 'Реквизиты пока недоступны. Напишите мастеру.';
+            return;
+        }
+        document.getElementById('paymentAmount').textContent = currency(booking.prepayment_amount);
+        document.getElementById('paymentRecipient').textContent = payment.recipient;
+        document.getElementById('paymentBank').textContent = payment.bank;
+        document.getElementById('paymentNumber').value = payment.details;
+        const tick = () => {
+            const remaining = Math.ceil((Date.parse(booking.payment_expires_at) - Date.now()) / 1000);
+            if (remaining <= 0) {
+                clearInterval(state.paymentTimer);
+                document.getElementById('paymentDetails').hidden = true;
+                cancel.textContent = 'К моим записям';
+                status.textContent = 'Время резерва истекло. Если перевод уже сделан, напишите мастеру.';
+                return;
+            }
+            const minutes = Math.ceil(remaining / 60);
+            const text = `Окошко удерживается до ${dateInMoscow(booking.payment_expires_at)} (МСК). Осталось около ${minutes} мин.`;
+            if (status.textContent !== text) status.textContent = text;
+        };
+        state.paymentTimer = setInterval(tick, 1000);
+        tick();
+    },
+
+    copyPayment: async function() {
+        const input = document.getElementById('paymentNumber');
+        const status = document.getElementById('paymentCopyStatus');
+        try {
+            if (!navigator.clipboard?.writeText) throw new Error();
+            await navigator.clipboard.writeText(input.value);
+            status.textContent = 'Реквизиты скопированы';
+        } catch {
+            input.focus();
+            input.select();
+            input.setSelectionRange(0, input.value.length);
+            let copied = false;
+            try { copied = document.execCommand('copy'); } catch {}
+            status.textContent = copied ? 'Реквизиты скопированы' : 'Реквизиты выделены. Нажмите «Копировать».';
+        }
+    },
+
+    submitPayment: async function() {
+        const booking = state.currentPayment;
+        const button = document.getElementById('paymentSend');
+        button.disabled = true;
+        try {
+            await api('client_pay', { appointmentId: booking.id });
+            this.showPayment({ ...booking, status: 'payment_review' });
+        } catch (error) {
+            alert(error.message);
+            if (error.status === 409) await this.openMyBookings();
+        } finally {
+            button.disabled = false;
+        }
+    },
+
+    cancelCurrentPayment: function() {
+        const booking = state.currentPayment;
+        if (booking.status === 'awaiting_payment' && Date.parse(booking.payment_expires_at) <= Date.now()) return this.openMyBookings();
+        return this.cancelBooking(booking.id, document.getElementById('paymentCancel'));
+    },
+
+    loadReviewSummary: async function() {
+        try {
+            const summary = await api('review_summary', {}, false);
+            document.getElementById('ratingAverage').textContent = summary.average ? String(summary.average).replace('.', ',') : '';
+            document.getElementById('ratingCount').textContent = summary.count ? `Отзывы · ${summary.count}` : 'Отзывы';
+            document.getElementById('reviewsSummary').textContent = summary.count ? `★ ${summary.average} из 5 · ${summary.count}` : '';
+            const filter = document.getElementById('reviewServiceFilter');
+            const selected = filter.value;
+            filter.replaceChildren(new Option('Все', ''), ...summary.services.map(service => new Option(serviceLabel(service), service)));
+            filter.value = [...filter.options].some(option => option.value === selected) ? selected : '';
+        } catch (error) {
+            console.error('Не удалось загрузить рейтинг', error);
+        }
+    },
+
+    openReviews: async function() {
+        const screen = document.querySelector('.screen.active')?.id;
+        state.reviewReturnScreen = ['screen-my-bookings', 'screen-write-review'].includes(screen) ? 'my-bookings' : 'services';
+        this.showScreen('reviews');
+        await Promise.all([this.loadReviewSummary(), this.loadReviews()]);
+    },
+
+    closeReviews: function() {
+        if (state.reviewReturnScreen === 'my-bookings') this.openMyBookings();
+        else this.showScreen('services');
+    },
+
+    loadReviews: async function(append = false) {
+        const request = ++state.reviewRequest;
+        const page = append ? state.reviewPage + 1 : 0;
+        const list = document.getElementById('reviewsList');
+        const more = document.getElementById('moreReviews');
+        more.hidden = true;
+        if (!append) list.innerHTML = '<p class="slots-loading">Загружаем отзывы…</p>';
+        try {
+            const { reviews, more: hasMore } = await api('reviews', {
+                page,
+                rating: document.getElementById('reviewRatingFilter').value,
+                service: document.getElementById('reviewServiceFilter').value,
+                sort: document.getElementById('reviewSort').value,
+            }, false);
+            if (request !== state.reviewRequest) return;
+            const rows = reviews.map(review => `<article class="flow-card review-card">
+                <div class="review-card-top"><span class="review-score" aria-label="${review.review_rating} из 5">${'★'.repeat(review.review_rating)}${'☆'.repeat(5 - review.review_rating)}</span><time datetime="${review.review_published_at}">${new Date(review.review_published_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Moscow' })}</time></div>
+                <h3>${escapeHtml(serviceLabel(review.service))}</h3>
+                ${review.review_text ? `<p>${escapeHtml(review.review_text)}</p>` : ''}
+                ${review.hasPhoto ? `<img class="review-photo" loading="lazy" alt="Фото маникюра из отзыва" src="${EDGE_FUNCTION_URL}?review_photo=${encodeURIComponent(review.id)}">` : ''}
+            </article>`).join('');
+            if (append) list.insertAdjacentHTML('beforeend', rows);
+            else list.innerHTML = rows || '<p class="slots-loading">По этим фильтрам отзывов пока нет.</p>';
+            state.reviewPage = page;
+            more.hidden = !hasMore;
+        } catch (error) {
+            if (request !== state.reviewRequest) return;
+            if (append) {
+                more.hidden = false;
+                alert(error.message);
+            } else {
+                list.textContent = error.message;
+            }
+        }
+    },
+
+    openReviewForm: function(id) {
+        const booking = state.reviewable.find(entry => entry.id === id);
+        if (!booking) return;
+        const form = document.getElementById('reviewForm');
+        form.reset();
+        const previousRating = form.querySelector(`input[name="rating"][value="${Number(booking.rating)}"]`);
+        if (previousRating) previousRating.checked = true;
+        form.elements.text.value = booking.text || '';
+        document.getElementById('reviewService').textContent = booking.service;
+        document.getElementById('reviewTime').textContent = dateInMoscow(booking.slotTime);
+        document.getElementById('reviewFormStatus').textContent = '';
+        form.onsubmit = async event => {
+            event.preventDefault();
+            const button = form.querySelector('button[type="submit"]');
+            const data = new FormData(form);
+            button.disabled = true;
+            try {
+                await api('client_review', { appointmentId: id, rating: Number(data.get('rating')), text: data.get('text') });
+                document.getElementById('reviewRatingFilter').value = '';
+                document.getElementById('reviewServiceFilter').value = '';
+                document.getElementById('reviewSort').value = 'newest';
+                setAppStatus('Отзыв опубликован', 'success');
+                await this.openReviews();
+            } catch (error) {
+                document.getElementById('reviewFormStatus').textContent = error.message;
+            } finally {
+                button.disabled = false;
+            }
+        };
+        this.showScreen('write-review');
+    },
+
     loadData: async function() {
-        setAppStatus('Загружаю услуги и свободные окошки…');
+        setAppStatus('Загружаю услуги…');
         // Load services
         const { data: srvData, error: servicesError } = await sb.from('services').select('*').eq('is_active', true).order('sort_order');
         if (servicesError) {
@@ -531,37 +745,46 @@ const app = {
             gallery.innerHTML = photoData.map(p => `<img src="${this.portfolioUrl(p.file_url)}" alt="Работа мастера" class="portfolio-img" loading="lazy">`).join('');
         }
 
-        // Load reviews stats
-        const { data: revData } = await sb.from('appointments').select('review_rating').not('review_rating', 'is', null);
-        if (revData && revData.length > 0) {
-            const sum = revData.reduce((acc, curr) => acc + curr.review_rating, 0);
-            const avg = (sum / revData.length).toFixed(1);
-            document.getElementById('masterRating').innerHTML = `<span class="rating-star">★</span><span class="rating-val">${avg}</span><span class="rating-count">${revData.length} оценок</span>`;
-        }
-
-        // Load calendar slots
-        const { data: slotsData } = await sb.from('slots').select('*').eq('status', 'available').gte('slot_time', new Date().toISOString()).order('slot_time');
-        
-        if (slotsData) {
-            state.slots = slotsData.map(s => {
-                const d = new Date(s.slot_time);
-                const localStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
-                const key = localStr.split('T')[0];
-                return { id: s.id, date: d, key, month: key.slice(0, 7) };
-            });
-            state.availableMonths = [...new Set(state.slots.map(s => s.month))].sort();
-            if (state.availableMonths.length > 0) {
-                this.openMonth(state.availableMonths[0]);
-            }
-        }
+        await this.loadReviewSummary();
         setAppStatus('');
+    },
+
+    loadSlots: async function() {
+        const { slots } = await api('available_slots', {}, false);
+        state.slots = slots.map(slot => {
+            const date = new Date(slot.slot_time);
+            const key = date.toLocaleDateString('en-CA', { timeZone: 'Europe/Moscow' });
+            return { id: slot.id, date, key, month: key.slice(0, 7) };
+        });
+        state.availableMonths = [...new Set(state.slots.map(slot => slot.month))].sort();
+    },
+
+    openCalendar: async function() {
+        state.selectedSlot = null;
+        state.selectedDay = null;
+        document.getElementById('slotsGrid').replaceChildren();
+        document.getElementById('calendarGrid').replaceChildren();
+        document.getElementById('noSlotsMsg').style.display = 'none';
+        this.showScreen('calendar');
+        setAppStatus('Загружаем свободные окошки…');
+        try {
+            await this.loadSlots();
+            if (state.availableMonths.length) this.openMonth(state.availableMonths[0]);
+            else {
+                document.getElementById('calendarMonthYear').textContent = 'Свободных окошек нет';
+                document.getElementById('noSlotsMsg').style.display = 'block';
+            }
+            setAppStatus('');
+        } catch (error) {
+            setAppStatus(error.message, 'error');
+        }
     },
 
     renderServices: function() {
         const list = document.getElementById('servicesList');
         list.innerHTML = state.services.map(s => `
             <div class="service-card" onclick="app.selectService('${s.id}')">
-                <div class="service-name">${s.name}</div>
+                <div class="service-name">${escapeHtml(s.name)}</div>
                 <div class="service-footer">
                     <div>
                         <div class="service-price">${s.price_min}${s.price_max > s.price_min ? ' - ' + s.price_max : ''} ₽</div>
@@ -646,7 +869,7 @@ const app = {
         } else {
             noSlots.style.display = 'none';
             grid.innerHTML = daySlots.map(s => {
-                const time = s.date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+                const time = s.date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Moscow' });
                 return `<button class="slot-pill" data-id="${s.id}" data-time="${time}" onclick="app.selectSlot('${s.id}')">${time}</button>`;
             }).join('');
         }
@@ -681,7 +904,7 @@ const app = {
 
         if (screenId === 'services') {
             btn.textContent = 'Продолжить →';
-            btn.onclick = () => this.showScreen('calendar');
+            btn.onclick = () => this.openCalendar();
             btn.disabled = false;
         } 
         else if (screenId === 'calendar') {
@@ -697,9 +920,7 @@ const app = {
         }
         else if (screenId === 'details') {
             if (state.selectedSlot) {
-                const d = state.selectedDay.split('-');
-                const time = state.selectedSlot.date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-                btn.textContent = `Записаться ${d[2]}.${d[1]} в ${time}`;
+                btn.textContent = 'К предоплате';
                 btn.disabled = false;
                 btn.onclick = () => this.submitBooking();
             }
@@ -775,130 +996,44 @@ const app = {
     },
 
     submitBooking: async function() {
-        const btn = document.getElementById('footerActionBtn');
-        btn.textContent = 'Отправляем...';
-        btn.disabled = true;
-        setAppStatus('Создаю запись…');
-
+        const button = document.getElementById('footerActionBtn');
+        const slot = state.selectedSlot;
+        if (button.disabled || !slot) return;
+        button.disabled = true;
+        button.textContent = 'Отправляем…';
         try {
-            // Claim slot
-            const { data: claimed, error: claimError } = await sb
-                .from('slots')
-                .update({ status: 'booked' })
-                .eq('id', state.selectedSlot.id)
-                .eq('status', 'available')
-                .select();
-                
-            if (claimError || !claimed || claimed.length === 0) {
-                alert('Увы, это окошко только что заняли — выбери другое.');
-                setAppStatus('Окошко уже заняли. Выбери другое.', 'error');
-                btn.disabled = false;
-                this.showScreen('calendar');
-                await this.loadData();
-                return;
-            }
-
             if (state.transferAppointment) {
-                const oldSlotId = state.transferAppointment.slot_id;
-                const { error: updateError } = await sb.from('appointments')
-                    .update({ slot_id: state.selectedSlot.id })
-                    .eq('id', state.transferAppointment.id)
-                    .eq('slot_id', oldSlotId);
-                if (updateError) {
-                    await sb.from('slots').update({ status: 'available' }).eq('id', state.selectedSlot.id);
-                    throw updateError;
-                }
-                await sb.from('slots').update({ status: 'available' }).eq('id', oldSlotId);
-                await fetch(EDGE_FUNCTION_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON_KEY },
-                    body: JSON.stringify({ action: 'transfer_appointment', appointmentId: state.transferAppointment.id }),
-                });
+                await api('client_move', { appointmentId: state.transferAppointment.id, slotId: slot.id });
                 state.transferAppointment = null;
-                state.selectedSlot = null;
-                alert('Запись перенесена.');
-                this.showScreen('my-bookings');
-                await this.loadMyBookings();
-                setAppStatus('');
+                state.selectedService = null;
+                await this.openMyBookings();
                 return;
             }
-
-            // Client data from Telegram WebApp
-            const user = Telegram.WebApp.initDataUnsafe?.user;
-            const tgUsername = user?.username ? '@' + user.username : null;
-            const clientName = user?.first_name ? user.first_name + (user.last_name ? ' ' + user.last_name : '') : 'Клиент из Telegram';
-            const chatId = user?.id;
-            
-            // Upload photos if any
-            const photoUrls = [];
-            for (const p of state.photos) {
-                const ext = p.file.name.split('.').pop();
-                const fileName = `ref_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
-                const { data: uploadData, error } = await sb.storage.from('photos').upload(fileName, p.file);
-                if (!error) {
-                    const { data: pubData } = sb.storage.from('photos').getPublicUrl(fileName);
-                    photoUrls.push(pubData.publicUrl);
-                }
+            const photos = [];
+            for (const { file } of state.photos) {
+                const extension = file.name.split('.').pop()?.replace(/[^a-z0-9]/gi, '') || 'jpg';
+                const path = `ref_${crypto.randomUUID()}.${extension}`;
+                const { error } = await sb.storage.from('photos').upload(path, file);
+                if (error) throw new Error('Не удалось загрузить фото. Попробуйте ещё раз.');
+                photos.push(sb.storage.from('photos').getPublicUrl(path).data.publicUrl);
             }
-
-            // Insert appointment
-            const commentStr = document.getElementById('bookingComment').value.trim();
-            const fullComment = photoUrls.length > 0 ? 
-                (commentStr ? commentStr + '\n\nФото-референсы:\n' + photoUrls.join('\n') : 'Фото-референсы:\n' + photoUrls.join('\n')) : commentStr;
-
-            const { data: appointment, error: insertError } = await sb
-                .from('appointments')
-                .insert({
-                    slot_id: state.selectedSlot.id,
-                    client_name: clientName,
-                    phone: 'Telegram', // Or ask phone
-                    contact: tgUsername,
-                    chat_id: chatId ? chatId.toString() : null,
-                    service: state.selectedService.name,
-                    comment: fullComment || null,
-                    price: state.selectedService.price_min,
-                    status: 'new'
-                })
-                .select()
-                .single();
-
-            if (insertError) {
-                await sb.from('slots').update({ status: 'available' }).eq('id', state.selectedSlot.id);
-                throw insertError;
-            }
-
-            // Notify via edge function
-            const dayRu = new Date(state.selectedDay + 'T12:00:00').toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
-            const timeStr = state.selectedSlot.date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-            
-            fetch(EDGE_FUNCTION_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + SUPABASE_ANON_KEY
-                },
-                body: JSON.stringify({
-                    action: 'new_appointment',
-                    appointmentId: appointment.id
-                })
-            }).catch(e => console.error(e));
-
-            // Show success screen
-            this.showScreen('success');
-            setAppStatus('');
-            document.getElementById('successDateTime').textContent = `${dayRu} · ${timeStr}`;
-            document.getElementById('successService').textContent = `${state.selectedService.name} · ${state.selectedService.price_min}${state.selectedService.price_max > state.selectedService.price_min ? ' - ' + state.selectedService.price_max : ''} ₽ · ${state.selectedService.duration_hours} ч`;
-
-            // Tell telegram we are done and hide MainButton
-            Telegram.WebApp.MainButton.hide();
-
-        } catch (err) {
-            alert(err.message || 'Ошибка записи');
-            setAppStatus('Не удалось создать запись. Попробуй ещё раз.', 'error');
-            btn.textContent = 'Продолжить →';
-            btn.disabled = false;
+            const result = await api('client_booking', {
+                slotId: slot.id, serviceId: state.selectedService.id, photos,
+                comment: document.getElementById('bookingComment').value,
+            });
+            document.getElementById('bookingComment').value = '';
+            state.photos = [];
+            state.selectedService = null;
+            this.renderPhotos();
+            this.showPayment({ ...result.booking, slotTime: slot.date }, result.payment);
+        } catch (error) {
+            alert(error.message);
+            if (error.status === 409) await this.openCalendar();
+        } finally {
+            this.updateStickyFooter(document.querySelector('.screen.active').id.slice('screen-'.length));
         }
     }
+
 };
 
 // Глобальный обработчик нужен для бургер-кнопки даже пока кабинет ещё загружает данные.
