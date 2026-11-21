@@ -16,7 +16,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;1,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="style.css?v=booking-1">
+    <link rel="stylesheet" href="style.css?v=booking-2">
 </head>
 <body>
     <div id="app" class="app-container">
@@ -139,13 +139,22 @@
                 <p id="paymentTime"></p>
                 <p id="paymentStatus" role="status"></p>
                 <div id="paymentDetails">
-                    <div class="payment-total" id="paymentAmount"></div>
-                    <p class="flow-note">Переведите эту сумму по реквизитам и нажмите «Я перевела».</p>
-                    <div class="payment-recipient"><span id="paymentRecipient"></span><span id="paymentBank"></span></div>
-                    <div class="payment-copy">
-                        <input id="paymentNumber" aria-label="Реквизиты перевода" readonly>
-                        <button type="button" class="btn-secondary" onclick="app.copyPayment()">Скопировать</button>
+                    <div class="payment-transfer">
+                        <div class="payment-bank-row">
+                            <img id="paymentBankLogo" class="payment-bank-logo" src="alfa-bank.svg" alt="" hidden width="36" height="36">
+                            <div class="payment-bank-name">
+                                <strong id="paymentBank"></strong>
+                                <span>Перевод по телефону</span>
+                            </div>
+                            <div class="payment-total" id="paymentAmount"></div>
+                        </div>
+                        <div class="payment-copy">
+                            <input id="paymentNumber" aria-label="Телефон для перевода" readonly>
+                            <button type="button" class="btn-secondary" onclick="app.copyPayment()">Скопировать</button>
+                        </div>
+                        <p id="paymentRecipient" class="flow-note" hidden></p>
                     </div>
+                    <p class="flow-note">Переведите указанную сумму и нажмите «Я перевела».</p>
                     <p class="flow-note" id="paymentCopyStatus" role="status"></p>
                     <button type="button" class="btn-primary flow-wide" id="paymentSend" onclick="app.submitPayment()">Я перевела</button>
                 </div>
@@ -244,6 +253,6 @@
             </button>
         </div>
     </div>
-    <script src="app.js?v=booking-1"></script>
+    <script src="app.js?v=booking-2"></script>
 </body>
 </html>

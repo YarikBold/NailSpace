@@ -568,8 +568,11 @@ const app = {
             return;
         }
         document.getElementById('paymentAmount').textContent = currency(booking.prepayment_amount);
-        document.getElementById('paymentRecipient').textContent = payment.recipient;
+        const recipient = document.getElementById('paymentRecipient');
+        recipient.textContent = payment.recipient ? 'Получатель: ' + payment.recipient : '';
+        recipient.hidden = !payment.recipient;
         document.getElementById('paymentBank').textContent = payment.bank;
+        document.getElementById('paymentBankLogo').hidden = !/^альфа[\s‑-]?банк$/i.test(payment.bank);
         document.getElementById('paymentNumber').value = payment.details;
         const tick = () => {
             const remaining = Math.ceil((Date.parse(booking.payment_expires_at) - Date.now()) / 1000);
@@ -593,7 +596,8 @@ const app = {
         const status = document.getElementById('paymentCopyStatus');
         try {
             if (!navigator.clipboard?.writeText) throw new Error();
-            await navigator.clipboard.writeText(input.value);
+            const number = /^\+?\d[\d\s()-]+$/.test(input.value) ? input.value.replace(/[^\d+]/g, '') : input.value;
+            await navigator.clipboard.writeText(number);
             status.textContent = 'Реквизиты скопированы';
         } catch {
             input.focus();

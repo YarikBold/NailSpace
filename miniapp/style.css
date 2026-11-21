@@ -147,8 +147,19 @@ button.master-rating {
 .booking-status { color: #fcd781 !important; }
 .booking-status.is-confirmed { color: #86efac !important; }
 #paymentDetails:not([hidden]) { display: grid; gap: 12px; }
-.payment-total { font-size: 30px; font-weight: 700; }
-.payment-recipient { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.payment-transfer {
+    display: grid;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-main);
+    border-radius: var(--radius-md);
+}
+.payment-bank-row { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.payment-bank-logo { border-radius: 9px; flex: 0 0 auto; }
+.payment-bank-name { display: grid; flex: 1 1 auto; }
+.payment-bank-name span { color: var(--text-muted); font-size: 12px; }
+.payment-total { font-size: clamp(20px, 6vw, 26px); font-weight: 700; white-space: nowrap; }
 .payment-copy { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .payment-copy input, .review-filters select {
     min-width: 0;
@@ -161,6 +172,10 @@ button.master-rating {
     border-radius: 10px;
 }
 .review-filters select { color-scheme: dark; }
+.payment-copy input { font-variant-numeric: tabular-nums; font-size: 14px; border-color: var(--border); }
+@media (max-width: 370px) {
+    .payment-copy { grid-template-columns: 1fr; }
+}
 .review-summary, .review-card-top {
     display: flex;
     justify-content: space-between;

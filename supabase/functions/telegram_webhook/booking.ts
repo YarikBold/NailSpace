@@ -1,6 +1,16 @@
 import { BOT_TOKEN, MASTER_CHAT_ID, SUPABASE_URL, corsHeaders, json, supabase, tg, validateInitData } from './telegram.ts';
 
-export const ADDRESS = Deno.env.get('NAILSPACE_ADDRESS')?.trim();
+const address = Deno.env.get('NAILSPACE_ADDRESS')?.trim();
+const entryDetails = [
+  ['Подъезд', Deno.env.get('NAILSPACE_ENTRANCE')],
+  ['Этаж', Deno.env.get('NAILSPACE_FLOOR')],
+  ['Квартира', Deno.env.get('NAILSPACE_APARTMENT')],
+  ['Домофон', Deno.env.get('NAILSPACE_INTERCOM')],
+].flatMap(([label, value]) => label && value?.trim() ? [[label, value.trim()]] : []);
+export const ADDRESS = address && [address, ...entryDetails.map(([label, value]) => `${label}: ${value}`)].join('\n');
+const latitude = Number(Deno.env.get('NAILSPACE_LATITUDE'));
+const longitude = Number(Deno.env.get('NAILSPACE_LONGITUDE'));
+const location = Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null;
 const amount = Number(Deno.env.get('NAILSPACE_PREPAYMENT_AMOUNT'));
 const details = Deno.env.get('NAILSPACE_PAYMENT_DETAILS')?.trim();
 const recipient = Deno.env.get('NAILSPACE_PAYMENT_RECIPIENT')?.trim();
@@ -12,7 +22,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const dayMs = 86_400_000;
 
 export function paymentSettings() {
-  return Number.isFinite(amount) && amount > 0 && amount <= 1_000_000 && details && details.length <= 256 && recipient && bank
+  return Number.isFinite(amount) && amount > 0 && amount <= 1_000_000 && details && details.length <= 256 && bank
     ? { amount, details, recipient, bank } : null;
 }
 
@@ -49,20 +59,73 @@ export async function reserveBooking(input: {
   return data?.id ? data : null;
 }
 
-export function paymentMessage(booking: any) {
+function richTable(rows: string[][]) {
+  return {
+    type: 'table', is_striped: true, is_compact: true,
+    cells: rows.map(([label, value]) => [{ text: { type: 'bold', text: label } }, { text: value }]),
+  };
+}
+
+export async function sendPaymentMessage(chatId: string, booking: any) {
   const config = paymentSettings();
-  if (!config) return { text: 'Реквизиты временно недоступны. Напиши мастеру.' };
-  if (booking.status === 'payment_review') return { text: 'Мастер уже проверяет предоплату. Подтверждение придёт сюда.' };
+  if (!config || booking.status === 'payment_review') {
+    await tg('sendMessage', { chat_id: chatId, text: config
+      ? 'Мастер уже проверяет предоплату. Подтверждение придёт сюда.'
+      : 'Реквизиты временно недоступны. Напиши мастеру.' });
+    return;
+  }
+  const copyValue = /^\+?\d[\d\s()-]+$/.test(config.details) ? config.details.replace(/[^\d+]/g, '') : config.details;
   const keyboard = [
-    [{ text: 'Скопировать реквизиты', copy_text: { text: config.details } }],
+    [{ text: 'Скопировать номер', copy_text: { text: copyValue } }],
     [{ text: '✅ Я перевела', callback_data: `pay_sent_${booking.id}` }],
     [{ text: 'Отменить и освободить время', callback_data: `cbook_cancel_${booking.id}` }],
   ];
-  return {
-    text: `💳 Предоплата ${money(booking.prepayment_amount)}\n\nБанк: ${config.bank}\nПолучатель: ${config.recipient}\nРеквизиты: ${config.details}\n\nОкошко удерживается до ${formatMoscow(booking.payment_expires_at)} (МСК). После перевода нажми «Я перевела». Мастер проверит поступление и подтвердит запись.`,
+  const rows = [['Банк', config.bank], ['Телефон', config.details]];
+  if (config.recipient) rows.push(['Получатель', config.recipient]);
+  const title = `💳 Предоплата · ${money(booking.prepayment_amount)}`;
+  const note = `Окошко удерживается до ${formatMoscow(booking.payment_expires_at)} (МСК). После перевода нажми «Я перевела».`;
+  const options = { chat_id: chatId, reply_markup: { inline_keyboard: keyboard }, protect_content: true };
+  const rich = await tg('sendRichMessage', {
+    ...options, rich_message: { blocks: [
+      { type: 'paragraph', text: { type: 'bold', text: title } },
+      richTable(rows),
+      { type: 'paragraph', text: note },
+    ] },
+  });
+  if (!rich?.ok) await tg('sendMessage', { ...options, text: [title, rows.map(row => row.join(': ')).join('\n'), note].join('\n\n') });
+}
+
+async function sendAddressReminder(row: any) {
+  const time = `${formatMoscow(slotTime(row))} (МСК)`;
+  const rows = [['Время', time], ['Услуга', row.service], ['Адрес', address!], ...entryDetails];
+  const title = '💅 Завтра у тебя запись на маникюр';
+  const note = 'Подтверди, пожалуйста, что придёшь.';
+  const keyboard: { text: string; callback_data?: string; url?: string }[][] = [
+    [{ text: '✅ Я приду', callback_data: `attend_${row.id}_${slotVersion(slotTime(row))}` }],
+  ];
+  if (location) keyboard.push([{
+    text: 'Открыть в Яндекс Картах',
+    url: `https://yandex.ru/maps/?pt=${location.longitude},${location.latitude}&z=18&l=map`,
+  }]);
+  const options = {
+    chat_id: row.chat_id,
     reply_markup: { inline_keyboard: keyboard },
     protect_content: true,
   };
+  const map = location ? [{ type: 'map', location, zoom: 17, width: 600, height: 330 }] : [];
+  const rich = await tg('sendRichMessage', {
+    ...options, rich_message: { blocks: [
+      ...map, { type: 'paragraph', text: { type: 'bold', text: title } },
+      richTable(rows), { type: 'paragraph', text: note },
+    ] },
+  });
+  if (rich?.ok) return true;
+  if (location) await tg('sendVenue', {
+    chat_id: row.chat_id, ...location, title: 'NailSpace', address,
+    disable_notification: true, protect_content: true,
+  });
+  const plain = await tg('sendMessage', { ...options, text: [title, rows.map(row => row.join(': ')).join('\n'), note].join('\n\n') });
+  return Boolean(plain?.ok);
 }
 
 async function notifyPayment(booking: any) {
@@ -173,12 +236,7 @@ export async function remindTomorrow() {
     if (!claim) continue;
     let delivered = false;
     try {
-      const sent = await tg('sendMessage', {
-        chat_id: row.chat_id,
-        text: `🔔 Завтра у тебя запись на маникюр\n\n✨ ${row.service}\n📅 ${formatMoscow(slotTime(row))} (МСК)\n📍 ${ADDRESS}\n\nПодтверди, пожалуйста, что придёшь.`,
-        reply_markup: { inline_keyboard: [[{ text: '✅ Я приду', callback_data: `attend_${row.id}_${slotVersion(slotTime(row))}` }]] },
-      });
-      delivered = Boolean(sent?.ok);
+      delivered = await sendAddressReminder(row);
     } finally {
       if (!delivered) await supabase.from('appointments').update({ day_reminder_sent_at: null })
         .eq('id', row.id).eq('day_reminder_sent_at', claimedAt);

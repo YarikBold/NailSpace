@@ -1,7 +1,7 @@
 import { BOT_TOKEN, MASTER_CHAT_ID, TG, corsHeaders, json, sameSecret, supabase, tg, validateMasterInitData } from './telegram.ts';
 import {
   ADDRESS, approvePayment, bookingApi, cancelBooking, confirmAttendance, expireHolds, formatMoscow,
-  paymentMessage, paymentSettings, remindTomorrow, reserveBooking, retryPaymentNotices,
+  paymentSettings, remindTomorrow, reserveBooking, retryPaymentNotices, sendPaymentMessage,
   publishReview, requestReview, reviewEligibility, reviewPhoto, submitPayment,
 } from './booking.ts';
 
@@ -129,7 +129,8 @@ Deno.serve(async (req) => {
       // Запрашиваем отзыв после визита, если его ещё не просили при закрытии в кассе.
       const { data: forReview } = await supabase.from('appointments')
         .select('id, chat_id, slots!inner(slot_time)').in('status', ['confirmed', 'completed'])
-        .is('review_requested_at', null).is('review_published_at', null).not('chat_id', 'is', null)
+        .is('review_requested_at', null).is('review_rating', null).not('chat_id', 'is', null)
+        .gte('slots.slot_time', new Date(Date.now() - 7 * 86_400_000).toISOString())
         .lte('slots.slot_time', new Date(Date.now() - 3 * 3_600_000).toISOString())
         .order('slots(slot_time)', { ascending: false }).limit(25);
       for (const app of forReview || []) await sendReviewRequest(app.id, app.chat_id);
@@ -647,14 +648,14 @@ Deno.serve(async (req) => {
           const id = cb.data.slice('pay_sent_'.length);
           const submitted = await submitPayment(id, String(chatId));
           await answerCallbackQuery(cb.id, submitted ? 'Отправлено мастеру на проверку.' : 'Резерв истёк или запись уже обработана.');
-          if (submitted) await editMessageText(chatId, messageId, '💳 Мастер проверяет предоплату. Подтверждение придёт сюда.',
+          if (submitted) await updatePaymentPrompt(cb, '💳 Мастер проверяет предоплату. Подтверждение придёт сюда.',
             [[{ text: 'Отменить запись', callback_data: `cbook_cancel_${id}` }]]);
           return json({ success: true });
         }
         if (cb.data.startsWith('cbook_cancel_')) {
           const canceled = await cancelBooking(cb.data.slice('cbook_cancel_'.length), String(chatId));
           await answerCallbackQuery(cb.id, canceled ? 'Запись отменена.' : 'Запись уже закрыта.');
-          if (canceled) await editMessageText(chatId, messageId, 'Запись отменена. Окошко снова свободно.', []);
+          if (canceled) await updatePaymentPrompt(cb, 'Запись отменена. Окошко снова свободно.', []);
           return json({ success: true });
         }
         if (cb.data.startsWith('attend_')) {
@@ -1146,7 +1147,17 @@ async function finishChatBooking(chatId: string, pending: { slot_id: string; ser
   await supabase.from('bot_pending_booking').delete().eq('chat_id', chatId);
   await tg('sendMessage', { chat_id: chatId, text: booking ? 'Контакт получен.' : 'Окошко уже занято. Нажми /start, чтобы выбрать другое.',
     reply_markup: { remove_keyboard: true } });
-  if (booking) await tg('sendMessage', { chat_id: chatId, ...paymentMessage(booking) });
+  if (booking) await sendPaymentMessage(chatId, booking);
+}
+
+async function updatePaymentPrompt(callback: any, text: string, keyboard: { text: string; callback_data: string }[][]) {
+  const { chat, message_id, rich_message } = callback.message;
+  if (rich_message) {
+    await tg('editMessageText', {
+      chat_id: chat.id, message_id, rich_message: { blocks: [{ type: 'paragraph', text }] },
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } else await editMessageText(chat.id, message_id, text, keyboard);
 }
 
 async function finishBotReview(chatId: string, id: string, rating: number, photo?: string) {
