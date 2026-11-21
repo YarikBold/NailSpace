@@ -49,7 +49,7 @@
 | `NAILSPACE_PREPAYMENT_AMOUNT` | Сумма предоплаты в рублях |
 | `NAILSPACE_PAYMENT_DETAILS` | Телефон или номер карты для перевода |
 | `NAILSPACE_PAYMENT_RECIPIENT` | Имя получателя, по желанию |
-| `NAILSPACE_PAYMENT_BANK` | Название банка |
+| `NAILSPACE_PAYMENT_BANK` | Для Альфа‑Банка укажите `alfa-bank`. Для другого банка укажите его название |
 | `TELEGRAM_WEBHOOK_SECRET` | Случайная строка из букв, цифр, дефисов и подчёркиваний |
 | `NAILSPACE_CRON_SECRET` | Отдельная случайная строка для расписания. При включении передайте её в заголовке `x-cron-secret` |
 

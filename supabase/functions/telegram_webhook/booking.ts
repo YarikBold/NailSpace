@@ -14,7 +14,9 @@ const location = Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { lati
 const amount = Number(Deno.env.get('NAILSPACE_PREPAYMENT_AMOUNT'));
 const details = Deno.env.get('NAILSPACE_PAYMENT_DETAILS')?.trim();
 const recipient = Deno.env.get('NAILSPACE_PAYMENT_RECIPIENT')?.trim();
-const bank = Deno.env.get('NAILSPACE_PAYMENT_BANK')?.trim();
+const bankSetting = Deno.env.get('NAILSPACE_PAYMENT_BANK')?.trim();
+const bankCode = /^(?:alfa-bank|альфа[\s‑-]?банк)$/i.test(bankSetting ?? '') ? 'alfa-bank' : undefined;
+const bank = bankCode === 'alfa-bank' ? 'Альфа-Банк' : bankSetting;
 const holdMinutes = 30;
 const miniAppUrl = 'https://yarikbold.github.io/NailSpace/miniapp/';
 const activeStates = ['new', 'confirmed', 'awaiting_payment', 'payment_review'];
@@ -23,7 +25,7 @@ const dayMs = 86_400_000;
 
 export function paymentSettings() {
   return Number.isFinite(amount) && amount > 0 && amount <= 1_000_000 && details && details.length <= 256 && bank
-    ? { amount, details, recipient, bank } : null;
+    ? { amount, details, recipient, bank, bankCode } : null;
 }
 
 export function formatMoscow(time: string) {
