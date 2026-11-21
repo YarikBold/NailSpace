@@ -7,7 +7,6 @@ const entryDetails = [
   ['Квартира', Deno.env.get('NAILSPACE_APARTMENT')],
   ['Домофон', Deno.env.get('NAILSPACE_INTERCOM')],
 ].flatMap(([label, value]) => label && value?.trim() ? [[label, value.trim()]] : []);
-export const ADDRESS = address && [address, ...entryDetails.map(([label, value]) => `${label}: ${value}`)].join('\n');
 const latitude = Number(Deno.env.get('NAILSPACE_LATITUDE'));
 const longitude = Number(Deno.env.get('NAILSPACE_LONGITUDE'));
 const location = Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? { latitude, longitude } : null;
@@ -97,37 +96,55 @@ export async function sendPaymentMessage(chatId: string, booking: any) {
   if (!rich?.ok) await tg('sendMessage', { ...options, text: [title, rows.map(row => row.join(': ')).join('\n'), note].join('\n\n') });
 }
 
-async function sendAddressReminder(row: any) {
+type ReminderAppointment = {
+  id: string;
+  chat_id: string;
+  service: string;
+  status: string;
+  slots: { slot_time: string } | { slot_time: string }[];
+};
+
+export async function sendVisitReminder(row: ReminderAppointment, timing: 'tomorrow' | 'hour') {
   const time = `${formatMoscow(slotTime(row))} (МСК)`;
-  const rows = [['Время', time], ['Услуга', row.service], ['Адрес', address!], ...entryDetails];
-  const title = '💅 Завтра у тебя запись на маникюр';
-  const note = 'Подтверди, пожалуйста, что придёшь.';
-  const keyboard: { text: string; callback_data?: string; url?: string }[][] = [
-    [{ text: '✅ Я приду', callback_data: `attend_${row.id}_${slotVersion(slotTime(row))}` }],
-  ];
-  if (location) keyboard.push([{
+  const visitAddress = row.status === 'confirmed' ? address : undefined;
+  const visitLocation = visitAddress ? location : null;
+  const rows = [['Время', time], ['Услуга', row.service]];
+  if (visitAddress) rows.push(['Адрес', visitAddress], ...entryDetails);
+
+  const tomorrow = timing === 'tomorrow';
+  const title = tomorrow ? '💅 Завтра у тебя запись на маникюр' : '🔔 Через час у тебя запись на маникюр';
+  const note = tomorrow ? 'Подтверди, пожалуйста, что придёшь.' : 'Ждём тебя!';
+  const keyboard: { text: string; callback_data?: string; url?: string }[][] = [];
+  if (tomorrow) keyboard.push([{ text: '✅ Я приду', callback_data: `attend_${row.id}_${slotVersion(slotTime(row))}` }]);
+  if (visitLocation) keyboard.push([{
     text: 'Открыть в Яндекс Картах',
-    url: `https://yandex.ru/maps/?pt=${location.longitude},${location.latitude}&z=18&l=map`,
+    url: `https://yandex.ru/maps/?pt=${visitLocation.longitude},${visitLocation.latitude}&z=18&l=map`,
   }]);
   const options = {
     chat_id: row.chat_id,
-    reply_markup: { inline_keyboard: keyboard },
-    protect_content: true,
+    ...(keyboard.length ? { reply_markup: { inline_keyboard: keyboard } } : {}),
+    protect_content: Boolean(visitAddress),
   };
-  const map = location ? [{ type: 'map', location, zoom: 17, width: 600, height: 330 }] : [];
+  const map = visitLocation ? [{ type: 'map', location: visitLocation, zoom: 17, width: 600, height: 330 }] : [];
   const rich = await tg('sendRichMessage', {
     ...options, rich_message: { blocks: [
       ...map, { type: 'paragraph', text: { type: 'bold', text: title } },
-      richTable(rows), { type: 'paragraph', text: note },
+      { ...richTable(rows), is_bordered: true }, { type: 'paragraph', text: note },
     ] },
   });
   if (rich?.ok) return true;
-  if (location) await tg('sendVenue', {
-    chat_id: row.chat_id, ...location, title: 'NailSpace', address,
+  if (visitLocation) await tg('sendVenue', {
+    chat_id: row.chat_id, ...visitLocation, title: 'NailSpace', address: visitAddress,
     disable_notification: true, protect_content: true,
   });
-  const plain = await tg('sendMessage', { ...options, text: [title, rows.map(row => row.join(': ')).join('\n'), note].join('\n\n') });
-  return Boolean(plain?.ok);
+
+  const escapeHtml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  const details = rows.map(([label, value]) => `<b>${label}</b> · ${escapeHtml(value)}`).join('\n');
+  const fallback = await tg('sendMessage', {
+    ...options, parse_mode: 'HTML',
+    text: `<b>${title}</b>\n\n<blockquote>${details}</blockquote>\n\n${note}`,
+  });
+  return Boolean(fallback?.ok);
 }
 
 async function notifyPayment(booking: any) {
@@ -221,12 +238,12 @@ export async function cancelBooking(id: string, chatId?: string, paymentOnly = f
 }
 
 export async function remindTomorrow() {
-  if (!ADDRESS) return;
+  if (!address) return;
   const now = new Date();
   const inOneDay = new Date(now.getTime() + dayMs);
   const tomorrow = dateKey(inOneDay);
   const { data, error } = await supabase.from('appointments')
-    .select('id, slot_id, chat_id, service, slots!inner(slot_time)').eq('status', 'confirmed')
+    .select('id, slot_id, chat_id, service, status, slots!inner(slot_time)').eq('status', 'confirmed')
     .not('chat_id', 'is', null).is('day_reminder_sent_at', null)
     .gte('slots.slot_time', tomorrow + 'T00:00:00+03:00').lte('slots.slot_time', inOneDay.toISOString());
   if (error) throw error;
@@ -238,7 +255,7 @@ export async function remindTomorrow() {
     if (!claim) continue;
     let delivered = false;
     try {
-      delivered = await sendAddressReminder(row);
+      delivered = await sendVisitReminder(row, 'tomorrow');
     } finally {
       if (!delivered) await supabase.from('appointments').update({ day_reminder_sent_at: null })
         .eq('id', row.id).eq('day_reminder_sent_at', claimedAt);
